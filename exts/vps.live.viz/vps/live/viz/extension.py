@@ -1,0 +1,327 @@
+"""
+VPS Live Viz — MQTT 차량 위치 → Omniverse PointInstancer 실시간 갱신.
+
+VPS(웹) 아키텍처 대응:
+  VPS:        Worker → SharedArrayBuffer(Float32Array) → useFrame → InstancedMesh
+  여기(Kit):  MQTT  → 위치 버퍼(dict)               → update tick → PointInstancer.positions
+
+스레드 안전:
+  paho-mqtt 콜백은 네트워크 스레드에서 돈다. USD 스테이지 편집은 메인(앱) 스레드에서만
+  해야 하므로, on_message 는 latest 위치만 버퍼에 적재하고, 실제 USD 쓰기는
+  omni.kit.app 의 update 콜백(메인 스레드)에서 flush 한다.
+
+뼈대 상태:
+  - MQTT 연결/구독/해제, instancer 보장/갱신 루프까지 동작.
+  - TODO 표시된 곳(토픽, payload 파싱)은 실제 VPS 송신 포맷에 맞춰 채울 것.
+"""
+from __future__ import annotations
+import json
+import math
+import threading
+import time
+
+import omni.ext
+import omni.usd
+import omni.kit.app
+from pxr import Usd, UsdGeom, Gf, Vt, Sdf
+
+# === 설정 (omniverse_mqtt_demo_plan.md 기준) ============================
+# 브로커: WSL mosquitto, 0.0.0.0 바인딩. extension(파이썬)은 TCP 9883 구독.
+# Windows→WSL localhost 안 되면 `wsl hostname -I` IP로 교체 (plan STEP 0-2).
+MQTT_HOST = "localhost"
+MQTT_PORT = 9883                 # plan: tcp://localhost:9883
+# VPS 는 fab 별로 VPS/viz/{fabId}/vehicles 로 쏨. 멀티팹이면 fab 마다 id 가 0,1,2…
+# 로 겹치므로 반드시 **한 fab 만** 구독 (와일드카드 쓰면 차량이 fab 사이로 튐).
+# 좌표는 fab-local(editor) 이라 fab 하나만 받으면 y_short USD 에 딱 맞음.
+# 다른 fab 보려면 VIZ_FAB 만 바꾸면 됨 (예: "fab_2_1"). 단일팹이면 "default".
+VIZ_FAB = "fab_0_0"
+MQTT_TOPIC = f"VPS/viz/{VIZ_FAB}/vehicles"
+
+VEHICLE_INSTANCER_PATH = "/World/Vehicles"
+# 프로토타입을 인스턴서 하위에 둔다 → Hydra 가 PointInstancer 하위를 prune 하므로
+# 원본이 원점에 standalone 으로 안 그려지고 instance 로만 그려진다.
+VEHICLE_PROTO_PATH = "/World/Vehicles/Protos/Vehicle"
+
+RAIL_Z = 3.8        # 레일(edge) 높이 (converter 와 동일, node editor_z)
+VEHICLE_Z = RAIL_Z  # 인스턴스는 레일 점에 둠 — OHT 형상이 자체 z오프셋(바퀴=레일)을 가짐
+RAIL_GAUGE = 0.4    # 두 레일 간격 (geometry.RAIL_GAUGE) — 바퀴를 Y=±gauge/2 에 얹음
+
+# 렌더 지연(ms, 시뮬시간 단위) — "받은 최신 sim-time - 이만큼" 시점을 그림.
+# 클수록 버퍼 여유↑(지터/배속에 강함) 대신 화면 지연↑. 3초 = 넉넉한 버퍼.
+# (더 부드럽게 원하면 5000, 더 실시간이면 1000~2000 로)
+RENDER_DELAY_MS = 3000.0
+
+# OHT 형상 색 (gree1.png 레퍼런스: 메탈릭 그레이/화이트 톤)
+OHT_CARRIAGE_COLOR = (0.22, 0.22, 0.25)  # 레일 타는 대차/바퀴 — 진회색
+OHT_BODY_COLOR     = (0.50, 0.52, 0.56)  # 매달린 본체 — 메탈 그레이
+OHT_FOUP_COLOR     = (0.82, 0.82, 0.86)  # FOUP — 밝은 회색/화이트
+
+
+def _lerp_angle(a: float, b: float, t: float) -> float:
+    """각도(도) 최단경로 보간 — 170°→-170° 같은 wrap 에서 한 바퀴 안 돌게."""
+    d = (b - a + 180.0) % 360.0 - 180.0
+    return a + d * t
+
+
+class VpsLiveVizExtension(omni.ext.IExt):
+    def on_startup(self, ext_id: str):
+        print("[vps.live.viz] startup")
+        self._stage: Usd.Stage | None = omni.usd.get_context().get_stage()
+        self._instancer: UsdGeom.PointInstancer | None = None
+        self._lock = threading.Lock()
+        # 타임스탬프 스냅샷 버퍼 (차량별 시간순) → 렌더지연 보간
+        self._buf: dict[int, list[tuple[float, float, float]]] = {}  # id → [(t_ms, x, y, rot), ...]
+        #   ↑ 실제로는 (t, x, y, rot) 4-튜플. 주석 타입은 단순화 표기.
+        self._latest_t = 0.0       # 수신한 최신 sim-time(ms)
+        self._render_t: float | None = None  # 현재 렌더 sim-time(ms) — latest_t - DELAY 추종
+        self._last_wall: float | None = None  # 직전 _on_update wall clock(monotonic)
+        self._sim_rate = 1.0       # sim-ms / wall-ms (EMA) — VPS 시뮬 진행속도(배속) 추정
+        self._last_latest: float | None = None  # 직전 latest_t (rate 측정용)
+        self._client = None
+        self._got_msg = False  # 첫 MQTT 수신 로그용
+
+        self._ensure_instancer()
+        self._start_mqtt()
+
+        # 메인 스레드 업데이트 구독 → 여기서만 USD 편집
+        self._sub = (
+            omni.kit.app.get_app()
+            .get_update_event_stream()
+            .create_subscription_to_pop(self._on_update, name="vps.live.viz.update")
+        )
+
+    def on_shutdown(self):
+        print("[vps.live.viz] shutdown")
+        self._sub = None
+        if self._client is not None:
+            try:
+                self._client.loop_stop()
+                self._client.disconnect()
+            except Exception as e:  # noqa: BLE001
+                print(f"[vps.live.viz] mqtt stop err: {e}")
+            self._client = None
+
+    # --- USD: 차량 instancer 준비 -------------------------------------
+    def _ensure_instancer(self):
+        stage = self._stage
+        if stage is None:
+            print("[vps.live.viz] no stage open — y_short.usda 를 먼저 열어주세요")
+            return
+
+        # 인스턴서 먼저 생성 (프로토타입을 그 하위에 둘 거라 순서 중요)
+        inst_prim = stage.GetPrimAtPath(VEHICLE_INSTANCER_PATH)
+        if inst_prim:
+            self._instancer = UsdGeom.PointInstancer(inst_prim)
+        else:
+            self._instancer = UsdGeom.PointInstancer.Define(stage, VEHICLE_INSTANCER_PATH)
+            self._instancer.CreatePositionsAttr().Set(Vt.Vec3fArray([]))
+            self._instancer.CreateProtoIndicesAttr().Set(Vt.IntArray([]))
+            self._instancer.CreateOrientationsAttr().Set(Vt.QuathArray([]))
+
+        # OHT 프로토타입 (인스턴서 하위 → 원점 잔상 안 생김)
+        # 리로드마다 형상/크기 갱신되게 기존 것 제거 후 재생성 (튜닝 편의)
+        if stage.GetPrimAtPath(VEHICLE_PROTO_PATH):
+            stage.RemovePrim(VEHICLE_PROTO_PATH)
+        self._build_oht_proto(stage, VEHICLE_PROTO_PATH)
+        self._instancer.CreatePrototypesRel().SetTargets([Sdf.Path(VEHICLE_PROTO_PATH)])
+
+    # --- OHT 형상 (gree1.png): 레일 타는 대차(위) + 매달린 본체 + FOUP(아래) --
+    def _build_oht_proto(self, stage, path):
+        """로컬축 X=진행, Y=좌우, Z=상. 인스턴스가 레일점(z=RAIL_Z)에 놓이므로
+        로컬 z=0 = 레일 높이.
+          - 대차(바퀴+상판): 두 레일(Y=±g) 위 (z>0) — "바퀴 걸치는 부분"
+          - 목: 레일 사이 gauge 틈으로 내려감 (레일 안 건드림)
+          - 본체 + FOUP: 레일 아래로 매달림 (z<0)"""
+        g = RAIL_GAUGE / 2.0  # 0.20
+
+        UsdGeom.Xform.Define(stage, path)
+
+        def box(name, scale, trans, color):
+            c = UsdGeom.Cube.Define(stage, path + "/" + name)
+            c.GetSizeAttr().Set(1.0)
+            c.CreateDisplayColorAttr().Set(Vt.Vec3fArray([Gf.Vec3f(*color)]))
+            api = UsdGeom.XformCommonAPI(c)
+            api.SetScale(Gf.Vec3f(*scale))
+            api.SetTranslate(Gf.Vec3d(*trans))
+
+        def wheel(name, trans):
+            cyl = UsdGeom.Cylinder.Define(stage, path + "/" + name)
+            cyl.GetRadiusAttr().Set(0.05)
+            cyl.GetHeightAttr().Set(0.04)
+            cyl.GetAxisAttr().Set("Y")  # Y축 원통 → 진행(X) 방향으로 구름
+            cyl.CreateDisplayColorAttr().Set(Vt.Vec3fArray([Gf.Vec3f(*OHT_CARRIAGE_COLOR)]))
+            UsdGeom.XformCommonAPI(cyl).SetTranslate(Gf.Vec3d(*trans))
+
+        # --- 대차 (레일 위, "바퀴 걸치는 부분") ---
+        wheel("wheel_fl", (0.13, +g, 0.05))
+        wheel("wheel_fr", (0.13, -g, 0.05))
+        wheel("wheel_bl", (-0.13, +g, 0.05))
+        wheel("wheel_br", (-0.13, -g, 0.05))
+        box("carriage", (0.38, 0.50, 0.06), (0.0, 0.0, 0.09), OHT_CARRIAGE_COLOR)
+        # --- 매달림 목 (레일 사이 gauge 틈으로 하강) ---
+        box("neck", (0.10, 0.10, 0.22), (0.0, 0.0, -0.01), OHT_CARRIAGE_COLOR)
+        # --- 본체 (레일 아래 매달림) ---
+        box("body", (0.40, 0.36, 0.32), (0.0, 0.0, -0.27), OHT_BODY_COLOR)
+        # --- FOUP (맨 아래) ---
+        box("foup", (0.28, 0.28, 0.24), (0.0, 0.0, -0.54), OHT_FOUP_COLOR)
+
+    # --- MQTT ----------------------------------------------------------
+    def _start_mqtt(self):
+        try:
+            import paho.mqtt.client as mqtt
+        except ImportError:
+            print("[vps.live.viz] paho-mqtt 없음 — extension.toml pipapi 로 설치되거나 "
+                  "kit python.bat -m pip install paho-mqtt 필요")
+            return
+
+        client = mqtt.Client()
+        client.on_connect = self._on_connect
+        client.on_message = self._on_message
+        try:
+            client.connect(MQTT_HOST, MQTT_PORT, keepalive=30)
+            client.loop_start()  # 네트워크 스레드 시작
+            self._client = client
+        except Exception as e:  # noqa: BLE001
+            print(f"[vps.live.viz] mqtt connect 실패: {e}")
+
+    def _on_connect(self, client, userdata, flags, rc):
+        print(f"[vps.live.viz] mqtt connected rc={rc}, subscribe {MQTT_TOPIC}")
+        client.subscribe(MQTT_TOPIC)
+
+    def _on_message(self, client, userdata, msg):
+        # 네트워크 스레드 — USD 만지지 말 것. 버퍼에만 적재.
+        try:
+            data = json.loads(msg.payload)
+        except Exception:  # noqa: BLE001
+            return
+        # plan 스키마: bare 배열 [{id, x, y, rot}, ...]. 1Hz.
+        # 차량은 레일 위 → z 는 레일 높이(RAIL_Z=3.8) 고정, rot 은 Z축 회전(rad).
+        # (Z-up identity 좌표계 — converter 와 동일, 축 안 바꿈)
+        # 포맷: {"t": sim_ms, "v": [[id, x, y, rot, spd], ...]}
+        try:
+            t = float(data["t"])
+            rows = data["v"]
+        except (KeyError, TypeError, ValueError):
+            return
+        if not rows:
+            return
+        if not self._got_msg:
+            self._got_msg = True
+            print(f"[vps.live.viz] first msg OK: t={t}, {len(rows)} veh, sample={rows[0]}")
+
+        with self._lock:
+            for r in rows:
+                try:
+                    vid = int(r[0])
+                    spd = float(r[4]) if len(r) > 4 else 0.0
+                    sample = (t, float(r[1]), float(r[2]), float(r[3]), spd)  # (t, x, y, rot, spd)
+                except (IndexError, ValueError, TypeError):
+                    continue
+                self._buf.setdefault(vid, []).append(sample)
+            if t > self._latest_t:
+                self._latest_t = t
+
+    @staticmethod
+    def _sample_at(samples, rt):
+        """시간순 samples [(t,x,y,rot,spd),...] 에서 sim-time rt 의 (x,y,rot).
+        범위 밖이면 양끝 값 유지(정지/데이터없음).
+        안이면 두 샘플의 '속도'까지 존중하는 cubic Hermite 보간 → 가감속 부드러움.
+          - 정지 샘플 spd=0 → 마지막 구간 속도 0으로 수렴 = 부드러운 감속 정지
+          - 출발도 0→spd 로 부드러운 가속
+        속도벡터 = spd · (cos rot, sin rot). 위치 trajectory 와 일치하면 overshoot 없음."""
+        if rt <= samples[0][0]:
+            s = samples[0]
+            return s[1], s[2], s[3]
+        if rt >= samples[-1][0]:
+            s = samples[-1]
+            return s[1], s[2], s[3]
+        for k in range(len(samples) - 1):
+            a, b = samples[k], samples[k + 1]
+            if not (a[0] <= rt <= b[0]):
+                continue
+            span = b[0] - a[0]
+            if span <= 0:
+                return b[1], b[2], b[3]
+            s = (rt - a[0]) / span          # 0..1
+            dt = span / 1000.0              # 초 (속도 m/s · dt = 위치단위)
+            ar, br = math.radians(a[3]), math.radians(b[3])
+            v0x, v0y = a[4] * math.cos(ar), a[4] * math.sin(ar)
+            v1x, v1y = b[4] * math.cos(br), b[4] * math.sin(br)
+            s2, s3 = s * s, s * s * s
+            h00 = 2 * s3 - 3 * s2 + 1
+            h10 = s3 - 2 * s2 + s
+            h01 = -2 * s3 + 3 * s2
+            h11 = s3 - s2
+            x = h00 * a[1] + h10 * dt * v0x + h01 * b[1] + h11 * dt * v1x
+            y = h00 * a[2] + h10 * dt * v0y + h01 * b[2] + h11 * dt * v1y
+            return x, y, _lerp_angle(a[3], b[3], s)
+        s = samples[-1]
+        return s[1], s[2], s[3]
+
+    # --- 메인 스레드: 렌더지연 보간하여 USD flush (60fps) ----------------
+    def _on_update(self, _e):
+        now_wall = time.monotonic()
+        with self._lock:
+            latest_t = self._latest_t
+            buf = {vid: list(s) for vid, s in self._buf.items()}  # 얕은 복사(읽기용)
+        if not buf or latest_t <= 0:
+            self._last_wall = now_wall
+            return
+        # 스테이지를 나중에 열었을 수 있음 → instancer 지연 생성
+        if self._instancer is None:
+            self._stage = omni.usd.get_context().get_stage()
+            self._ensure_instancer()
+        if self._instancer is None:
+            self._last_wall = now_wall
+            return
+
+        # 렌더 sim-time = (latest_t - DELAY) 를 wall-clock 으로 부드럽게 추종.
+        # sim 정지 → latest_t 정지 → render_t 수렴 후 freeze. sim 배속/렉도 자동 보정.
+        desired = latest_t - RENDER_DELAY_MS
+        if self._render_t is None or self._last_wall is None:
+            self._render_t = desired
+        else:
+            dt_wall = (now_wall - self._last_wall) * 1000.0
+            # VPS 시뮬 진행속도 측정 (sim-ms 가 wall-ms 당 얼마나 느는지) → EMA
+            if self._last_latest is not None and dt_wall > 0:
+                inst = (latest_t - self._last_latest) / dt_wall
+                if 0.0 <= inst < 50.0:  # 0~50배속 범위만 (스파이크 무시)
+                    self._sim_rate = self._sim_rate * 0.9 + inst * 0.1
+            # 렌더시각을 '시뮬 속도'로 전진 (배속이든 실시간이든 추종)
+            self._render_t += self._sim_rate * dt_wall
+            # 목표 지연(DELAY)으로 부드럽게 수렴 (지터 흡수)
+            self._render_t += (desired - self._render_t) * 0.05
+            # 미래 데이터는 안 봄(클램프). 너무 뒤처지면 컷해서 따라붙음.
+            self._render_t = min(self._render_t, latest_t)
+            self._render_t = max(self._render_t, latest_t - 3.0 * RENDER_DELAY_MS)
+        self._last_latest = latest_t
+        self._last_wall = now_wall
+        rt = self._render_t
+
+        ids = sorted(buf.keys())
+        pts = []
+        quats = []
+        for i in ids:
+            x, y, rot = self._sample_at(buf[i], rt)
+            pts.append(Gf.Vec3f(x, y, VEHICLE_Z))
+            q = Gf.Rotation(Gf.Vec3d(0, 0, 1), rot).GetQuat()  # Z축 회전 (진행방향)
+            im = q.GetImaginary()
+            quats.append(Gf.Quath(q.GetReal(), im[0], im[1], im[2]))
+        self._instancer.CreatePositionsAttr().Set(Vt.Vec3fArray(pts))
+        self._instancer.CreateOrientationsAttr().Set(Vt.QuathArray(quats))
+        proto_idx = self._instancer.GetProtoIndicesAttr().Get()
+        if proto_idx is None or len(proto_idx) != len(ids):
+            self._instancer.CreateProtoIndicesAttr().Set(Vt.IntArray([0] * len(ids)))
+
+        # 버퍼 트림 — rt 보다 충분히 과거 샘플 제거(왼쪽 앵커 1개는 보존)
+        cutoff = rt - 2.0 * RENDER_DELAY_MS
+        with self._lock:
+            for vid, s in self._buf.items():
+                keep = 0
+                for k in range(len(s)):
+                    if s[k][0] <= cutoff:
+                        keep = k
+                    else:
+                        break
+                if keep > 0:
+                    self._buf[vid] = s[keep:]

@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+converter/.venv/
+
+# 생성물 (converter 가 input → out 으로 만듦. convert_map_to_usd.py 로 재생성 가능)
+out/
+
+# Omniverse / Kit
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

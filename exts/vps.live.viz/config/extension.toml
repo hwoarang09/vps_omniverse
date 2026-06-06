@@ -1,0 +1,22 @@
+[package]
+version = "0.1.0"
+title = "VPS Live Visualization"
+description = "MQTT로 VPS가 보내는 차량 위치를 구독해 Omniverse 스테이지의 prim으로 실시간 렌더."
+category = "Simulation"
+authors = ["vosui"]
+repository = ""
+
+# 의존성: omni.kit.app 은 커널이라 선언 안 함(암묵 제공). omni.usd=스테이지 접근,
+# omni.kit.pipapi=아래 [python.pipapi] 로 paho 자동설치 처리.
+[dependencies]
+"omni.usd" = {}
+"omni.kit.pipapi" = {}
+
+# on_startup 진입점: vps/live/viz/extension.py 의 IExt 구현
+[[python.module]]
+name = "vps.live.viz"
+
+# paho-mqtt 는 Kit 임베디드 파이썬에 기본 없음 → pipapi 로 런타임 설치.
+[python.pipapi]
+requirements = ["paho-mqtt"]
+use_online_index = true
