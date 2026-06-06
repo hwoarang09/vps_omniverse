@@ -509,6 +509,81 @@ def compute_curve_hide(edges, nodes, types=("CURVE_CSC", "CURVE_90"),
     return out
 
 
+RAIL_CROSS_ANGLE = 30.0   # 직선영역이 이웃 통로를 이 각(도) 이상 '가로지르면' 방해→삭제
+
+
+def _angle_deg(ax, ay, bx, by):
+    """두 방향 사잇각(0=평행, 90=수직). 부호 무시."""
+    la = math.hypot(ax, ay) or 1.0
+    lb = math.hypot(bx, by) or 1.0
+    c = max(-1.0, min(1.0, (ax * bx + ay * by) / (la * lb)))
+    return math.degrees(math.acos(abs(c)))
+
+
+def compute_straight_block_hide(edges, nodes, gauge=RAIL_GAUGE,
+                                angle_thr=RAIL_CROSS_ANGLE):
+    """곡선 edge 의 **직선영역(lead-in/out)이 다른 통로를 '가로막는'** 부분 삭제.
+    겹침(평행, 나란히)은 보존 — veh 가 나란히 가면 안 막으니까. 가로막음 =
+    그 직선영역 레일이 이웃(노드 공유) edge 중심선 corridor(±gauge/2) 안 + 그 이웃과
+    이루는 각 > angle_thr(가로지름). 양쪽 레일 다. 반환 {edge:(left_iv,right_iv)}."""
+    g = gauge / 2.0
+    ne = {}
+    for e in edges:
+        ne.setdefault(e.from_node, []).append(e.edge_name)
+        ne.setdefault(e.to_node, []).append(e.edge_name)
+    center = {e.edge_name: _densify(_edge_clean_points(e, nodes), RAIL_TRIM_FINE)
+              for e in edges}
+    out = {}
+    for e in edges:
+        if e.vos_rail_type not in _CURVE_TYPES:
+            continue
+        en = e.edge_name
+        nbsegs, seen = [], set()
+        for nd in (e.from_node, e.to_node):
+            for o in ne.get(nd, []):
+                if o == en or o in seen:
+                    continue
+                seen.add(o)
+                cl = center[o]
+                for i in range(len(cl) - 1):
+                    nbsegs.append((cl[i][0], cl[i][1], cl[i + 1][0], cl[i + 1][1]))
+        if not nbsegs:
+            continue
+        rl = _edge_rail_seg_list(e, nodes)
+        sides = []
+        for k in ("L", "R"):
+            segs = rl[k]
+            hid = [False] * len(segs)
+            for i, s in enumerate(segs):
+                if s[6]:                       # 직선영역만 (호는 compute_curve_hide 담당)
+                    continue
+                mx, my = (s[0] + s[2]) / 2.0, (s[1] + s[3]) / 2.0
+                best = min(nbsegs, key=lambda c: _pt_seg_dist(mx, my, c[0], c[1], c[2], c[3]))
+                if _pt_seg_dist(mx, my, best[0], best[1], best[2], best[3]) <= g and \
+                        _angle_deg(s[2] - s[0], s[3] - s[1],
+                                   best[2] - best[0], best[3] - best[1]) > angle_thr:
+                    hid[i] = True
+            sides.append(_runs_to_intervals_seglist(segs, hid))
+        if sides[0] or sides[1]:
+            out[en] = (sides[0], sides[1])
+    return out
+
+
+def compute_rail_hide(edges, nodes):
+    """곡선 레일 trim 통합: 호 outer(compute_curve_hide) + 직선영역 방해
+    (compute_straight_block_hide). edge별 좌/우 인터벌 병합."""
+    out = {}
+    for d in (compute_curve_hide(edges, nodes),
+              compute_straight_block_hide(edges, nodes)):
+        for en, (L, R) in d.items():
+            if en in out:
+                pL, pR = out[en]
+                out[en] = (_merge_intervals(pL + L), _merge_intervals(pR + R))
+            else:
+                out[en] = (list(L), list(R))
+    return out
+
+
 def dual_rail_segments(edges, nodes, hide=None, gauge=RAIL_GAUGE):
     """엣지 중심선을 좌우 ±gauge/2 오프셋 → 2줄 레일 박스. 곡선 바깥=큰 반경.
     hide={edge:(left_iv,right_iv)} 정규화 인터벌이 있으면 그 구간 레일은 안 그림
