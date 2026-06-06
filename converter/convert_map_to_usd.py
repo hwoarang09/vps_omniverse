@@ -20,7 +20,7 @@ from pxr import Gf
 from pxr import UsdGeom
 
 import usd_build as ub
-from mapio import parse_nodes, parse_edges, parse_stations, parse_station_body, parse_rail_hide
+from mapio import parse_nodes, parse_edges, parse_stations, parse_station_body
 import geometry as geo
 import models
 
@@ -68,10 +68,8 @@ def convert(map_dir, out_path, station_marker=True):
     # --- rails: instanced 박스 세그먼트 (LINEAR=1개, 곡선=적응적 8~16개) ---
     #   두꺼운 BasisCurves 튜브(37k점 테셀레이션) 대신 박스 세그먼트 PointInstancer.
     polylines = geo.rail_polylines(edges, nodes)   # 바닥 bbox/카메라용
-    # 분기/합류 레일 가림: rail_hide.map 있으면 사용, 없으면 자동(CURVE_90)
-    rh_path = f"{map_dir}/rail_hide.map"
-    rail_hide = parse_rail_hide(rh_path) if os.path.exists(rh_path) \
-        else geo.compute_rail_hide(edges, nodes)
+    # 곡선 trim: 곡선 레일이 이웃 직선영역 레일 위에 얹힌 부분만 숨김(타입별 정복중)
+    rail_hide = geo.compute_curve_hide(edges, nodes)
     rsegs, _tsegs = geo.dual_rail_segments(edges, nodes, hide=rail_hide)   # 2줄 레일
     # 디버그 색칠: 직선 edge=초록 / 곡선 직선영역=분홍 / 곡선 호영역=빨강
     rail_colors = {

@@ -330,195 +330,6 @@ def _in_intervals(t, intervals):
     return any(a <= t <= b for (a, b) in intervals)
 
 
-def _node_edge_tangents(edges, nodes):
-    """node -> [(edge_name, type, (tx,ty)), ...]  접선은 노드에서 edge 안쪽으로."""
-    res = {}
-    for e in edges:
-        pts = _edge_clean_points(e, nodes)
-        if len(pts) < 2:
-            continue
-
-        def u(ax, ay):
-            L = math.hypot(ax, ay) or 1.0
-            return (ax / L, ay / L)
-
-        sd = u(pts[1][0] - pts[0][0], pts[1][1] - pts[0][1])
-        ed = u(pts[-2][0] - pts[-1][0], pts[-2][1] - pts[-1][1])
-        res.setdefault(e.from_node, []).append((e.edge_name, e.vos_rail_type, sd))
-        res.setdefault(e.to_node, []).append((e.edge_name, e.vos_rail_type, ed))
-    return res
-
-
-def _has_collinear_straight(node_tan, node, my_tangent, my_edge, thr=0.97):
-    """그 노드에 내 곡선 lead 와 일직선(|cos|>thr)인 LINEAR edge 가 있나 = 덮는 직선 존재."""
-    for en, typ, t in node_tan.get(node, []):
-        if en == my_edge or typ not in ("LINEAR", ""):
-            continue
-        if abs(my_tangent[0] * t[0] + my_tangent[1] * t[1]) > thr:
-            return True
-    return False
-
-
-def _arc_clear_frac(radius, gauge):
-    """바깥 레일이 직선 corridor 를 벗어나는 호 비율 (호 시작=분기쪽 기준).
-    바깥레일(Ro=R+g)이 직선 안쪽레일선(중심선에서 +g)과 만나는 각으로 계산."""
-    g = gauge / 2.0
-    val = max(-1.0, min(1.0, (g - radius) / (radius + g)))
-    return (90.0 + math.degrees(math.asin(val))) / 90.0
-
-
-RAIL_HIDE_SNAP = 0.22     # 인터벌이 edge 끝 근처면 노드까지 스냅(lead-in 겹침 제거)
-
-
-def _snap_intervals(ivs, s=RAIL_HIDE_SNAP):
-    out = []
-    for a, b in ivs:
-        if a < s:
-            a = 0.0
-        if b > 1.0 - s:
-            b = 1.0
-        out.append([round(a, 4), round(b, 4)])
-    return out
-
-
-def _runs_to_intervals(hid, cum, total):
-    """연속 True 구간(세그먼트) → 정규화 [start,end] 인터벌 리스트."""
-    ivs = []
-    i, n = 0, len(hid)
-    while i < n:
-        if hid[i]:
-            j = i
-            while j + 1 < n and hid[j + 1]:
-                j += 1
-            ivs.append([round(cum[i] / total, 4), round(cum[j + 1] / total, 4)])
-            i = j + 1
-        else:
-            i += 1
-    return ivs
-
-
-RAIL_TRIM_FINE = 0.1      # 트림 계산용 정밀 샘플 간격(렌더는 RAIL_DRAW_MAXLEN)
-# 로버스트 2-임계: 넉넉한 폭(GEN)으로 노드부터 연속 run 을 잡되, run 이 진짜 직선 안쪽
-# (INT=밴드 내부)까지 파고든 경우만 채택. 칼날(정확히 gauge/2) 의존 제거.
-RAIL_BAND_TOL = RAIL_GAUGE / 2.0 + 1e-6   # 밴드 안 판정 = 정확히 gauge/2. walk 이 진짜 밴드
-# 경계에서 멈춰 over-walk(엉뚱한 곳 지움) 없음. (+0.05 로 키우면 곡선이 옆 어슬렁대다 과지움)
-RAIL_CAND_NEAR = 3.5      # 후보 직선/곡선의 '노드 근처' 부분만 (성능 + 국소성)
-RAIL_ARC_BLEED = 0.05     # 곡선 trim 이 호(red) 영역으로 파고들 수 있는 최대 정규화 마진.
-                          # 이걸로 직선영역(pink)만 자르고 호는 보존(과지움 차단).
-
-
-def _band_dist(mx, my, cand_segs):
-    return min((_pt_seg_dist(mx, my, s[0], s[1], s[2], s[3]) for s in cand_segs),
-               default=9.0)
-
-
-def _interior_perp(px, py, ax, ay, bx, by):
-    """점이 선분 '본체'(끝점 아닌 내부) 위로 투영될 때만 수직거리, 아니면 큰 값.
-    coincident 겹침(직선 덮고 달림)=내부 투영 / 일직선 연속(끝점 투영)=제외 를 가름."""
-    dx, dy = bx - ax, by - ay
-    L2 = dx * dx + dy * dy
-    if L2 < 1e-12:
-        return 9.0
-    t = ((px - ax) * dx + (py - ay) * dy) / L2
-    if t < 0.02 or t > 0.98:
-        return 9.0
-    return abs((px - ax) * (-dy) + (py - ay) * dx) / math.sqrt(L2)
-
-
-def _conf_overlap(mx, my, cand_segs):
-    return min((_interior_perp(mx, my, s[0], s[1], s[2], s[3]) for s in cand_segs),
-               default=9.0) <= RAIL_BAND_CONF
-
-
-def compute_rail_hide(edges, nodes):
-    """[A: 기하 트림] 각 edge 의 두 레일을, **자기 끝 노드에서 안쪽으로 걸으며**
-    그 노드를 공유하는 다른 edge 의 밴드(중심선 ±gauge/2) 안에 있는 동안 가린다.
-    밴드를 벗어나는 순간 멈춤 = 직선/곡선이 실제로 갈라지는 정확한 지점.
-      - U턴 꼭대기 등은 '노드에서 연속'이 아니라 자동 제외
-      - 직선 lead 길이/노드수(90·180·CSC·S) 무관 (끝에서 걷기)
-      - 분기/합류 라벨 안 씀, 끝마다 독립
-    한번 계산 → rail_hide.map. 반환: {edge:(left_iv,right_iv)} 정규화."""
-    g = RAIL_GAUGE / 2.0
-    cl_fine = {e.edge_name: _densify(_edge_clean_points(e, nodes), RAIL_TRIM_FINE)
-               for e in edges}
-    node_edges = {}
-    for e in edges:
-        node_edges.setdefault(e.from_node, []).append(e.edge_name)
-        node_edges.setdefault(e.to_node, []).append(e.edge_name)
-
-    def cand_segs(node, exclude):
-        """그 노드를 공유하는 다른 edge들의 중심선 세그먼트(노드 근처만)."""
-        nd = nodes.get(node)
-        if nd is None:
-            return []
-        segs = []
-        for en in node_edges.get(node, []):
-            if en == exclude:
-                continue
-            ocl = cl_fine[en]
-            for i in range(len(ocl) - 1):
-                mx = (ocl[i][0] + ocl[i + 1][0]) / 2.0
-                my = (ocl[i][1] + ocl[i + 1][1]) / 2.0
-                if math.hypot(mx - nd.editor_x, my - nd.editor_y) <= RAIL_CAND_NEAR:
-                    segs.append((ocl[i][0], ocl[i][1], ocl[i + 1][0], ocl[i + 1][1]))
-        return segs
-
-    out = {}
-    for e in edges:
-        # 곡선만 trim. 직선은 메인 레일이라 안 자름(직선 trim 하면 과지움 발생).
-        if e.vos_rail_type in ("LINEAR", ""):
-            continue
-        cl = cl_fine[e.edge_name]
-        if len(cl) < 2:
-            continue
-        from_cand = cand_segs(e.from_node, e.edge_name)
-        to_cand = cand_segs(e.to_node, e.edge_name)
-        if not from_cand and not to_cand:
-            continue
-        perp = _perp_offsets(cl)
-        cum = [0.0]
-        for i in range(1, len(cl)):
-            cum.append(cum[-1] + math.dist(cl[i - 1], cl[i]))
-        total = cum[-1] or 1.0
-        nseg = len(cl) - 1
-        # 호(red) 영역 경계 — trim 이 호 안으로 RAIL_ARC_BLEED 이상 못 파고들게 cap.
-        # (직선 위로 outer 레일이 dip 하며 walk 이 호를 통째로 먹던 과지움 차단)
-        arc_ivs = _arc_t_intervals(_edge_clean_points(e, nodes))
-        from_cap = (arc_ivs[0][0] + RAIL_ARC_BLEED) if arc_ivs else 1.0
-        to_cap = (arc_ivs[-1][1] - RAIL_ARC_BLEED) if arc_ivs else 0.0
-        sides = []
-        for sgn in (1, -1):       # +perp(left), -perp(right)
-            poly = [(cl[i][0] + perp[i][0] * g * sgn, cl[i][1] + perp[i][1] * g * sgn)
-                    for i in range(len(cl))]
-            hid = [False] * nseg
-
-            def mid(i):
-                return (poly[i][0] + poly[i + 1][0]) / 2.0, (poly[i][1] + poly[i + 1][1]) / 2.0
-
-            def tmid(i):
-                return (cum[i] + cum[i + 1]) / 2.0 / total
-
-            def walk(cands, start, step, cap, is_from):
-                """노드(start)에서 안쪽으로 밴드 안인 동안 가림, 벗어나면 멈춤(곡선만).
-                단 호 경계 cap 을 넘으면 멈춤 = 호 영역은 안 자름(과지움 방지)."""
-                if not cands:
-                    return
-                i = start
-                while 0 <= i < nseg and _band_dist(*mid(i), cands) <= RAIL_BAND_TOL:
-                    t = tmid(i)
-                    if (is_from and t > cap) or ((not is_from) and t < cap):
-                        break
-                    hid[i] = True
-                    i += step
-
-            walk(from_cand, 0, 1, from_cap, True)
-            walk(to_cand, nseg - 1, -1, to_cap, False)
-            sides.append(_runs_to_intervals(hid, cum, total))
-        if sides[0] or sides[1]:
-            out[e.edge_name] = (sides[0], sides[1])
-    return out
-
-
 def _densify(pts, max_len):
     """폴리라인을 max_len 이하 간격으로 잘게 (직선도 끝부분 세그먼트가 개별로 숨겨지게)."""
     out = [pts[0]]
@@ -545,13 +356,13 @@ def _pt_seg_dist(px, py, ax, ay, bx, by):
     return math.hypot(px - (ax + dx * t), py - (ay + dy * t))
 
 
-# 곡선 레일이 직선 corridor(중심선) 안으로 이만큼 들어오면 = 겹침 → 그 세그먼트 숨김.
-# gauge/2 보다 작게 (경계의 정상 레일은 안 지우고, 안으로 가로지르는 부분만).
-RAIL_OVERLAP_TOL = RAIL_GAUGE * 0.45
 RAIL_DRAW_MAXLEN = 0.5    # 그릴 때 레일 세그먼트 최대 길이(겹침 끝부분 개별 숨김용)
-RAIL_JUNCTION_R = 1.3     # 겹침 후보(직선/곡선 corridor)를 모으는 노드 반경
-RAIL_ERASE_NEAR = 1.0     # 지우는 rail 세그먼트도 자기 분기점에서 이 반경 안일 때만
-                          # (U턴 중간이 다른 레일 옆 지나가도 안 지워지게)
+RAIL_TRIM_FINE = 0.1      # trim 계산용 정밀 샘플 간격
+RAIL_CAND_NEAR = 3.5      # 이웃 직선영역 레일을 모으는 노드 반경(국소성)
+# "딱 겹치는" 판정 = 곡선 레일이 이웃의 '실제 직선 레일' 위에 얹힌 정도(rail-to-rail).
+# rail 폭(0.1) 근처. corridor(중심선±gauge/2) 가 아니라 그려진 레일선과의 거리라,
+# 곡선 outer 가 corridor 한가운데를 가로지르는 부분은 안 잡힘(=과지움 방지).
+RAIL_RAIL_OVERLAP = RAIL_RAIL_W * 1.2
 
 
 _CURVE_TYPES = ("CURVE_90", "CURVE_180", "CURVE_CSC", "S_CURVE")
@@ -597,12 +408,97 @@ def _arc_t_intervals(clean, thr_deg=RAIL_ARC_TURN_DEG):
     return ivs
 
 
+def _edge_rail_seg_list(e, nodes, gauge=RAIL_GAUGE, fine=RAIL_TRIM_FINE):
+    """edge 의 좌/우 레일을 fine 간격 세그먼트로.
+    반환 {'L':[seg...], 'R':[seg...]}, seg=(x0,y0,x1,y1, tlo, thi, is_arc)."""
+    g = gauge / 2.0
+    clean = _edge_clean_points(e, nodes)
+    cl = _densify(clean, fine)
+    out = {"L": [], "R": []}
+    if len(cl) < 2:
+        return out
+    arc = _arc_t_intervals(clean) if e.vos_rail_type in _CURVE_TYPES else []
+    perp = _perp_offsets(cl)
+    cum = [0.0]
+    for i in range(1, len(cl)):
+        cum.append(cum[-1] + math.dist(cl[i - 1], cl[i]))
+    total = cum[-1] or 1.0
+    for sgn, k in ((1, "L"), (-1, "R")):
+        poly = [(cl[i][0] + perp[i][0] * g * sgn, cl[i][1] + perp[i][1] * g * sgn)
+                for i in range(len(cl))]
+        for i in range(len(poly) - 1):
+            tlo, thi = cum[i] / total, cum[i + 1] / total
+            is_arc = _in_intervals((tlo + thi) / 2.0, arc)
+            out[k].append((poly[i][0], poly[i][1], poly[i + 1][0], poly[i + 1][1],
+                           tlo, thi, is_arc))
+    return out
+
+
+def _runs_to_intervals_seglist(segs, hid):
+    """seg 리스트(각 (.., tlo, thi, ..))와 hid bool 배열 → 연속 True 구간 정규화 인터벌."""
+    ivs, i, n = [], 0, len(segs)
+    while i < n:
+        if hid[i]:
+            j = i
+            while j + 1 < n and hid[j + 1]:
+                j += 1
+            ivs.append([round(segs[i][4], 4), round(segs[j][5], 4)])
+            i = j + 1
+        else:
+            i += 1
+    return ivs
+
+
+def _outer_rail_key(clean):
+    """곡선 회전방향으로 '바깥(outer)' 레일 키. CCW(+)→ outer=R, CW(-)→ outer=L.
+    (_perp 는 진행방향 왼쪽=+ → L. 좌회전이면 안쪽이 L 이므로 바깥은 R.)"""
+    return "R" if _turn_sign(clean) > 0 else "L"
+
+
+RAIL_CSC_ARC_HIDE = 0.7   # CSC 각 90도 호에서 '노드쪽' 이 비율만큼 outer 레일 숨김
+
+
+def compute_curve_hide(edges, nodes, types=("CURVE_CSC",), arc_hide=RAIL_CSC_ARC_HIDE):
+    """CSC(90호+직선+90호)의 **바깥(outer) 레일만** 숨긴다(안쪽·직선은 안 건드림).
+    각 호에서 '노드쪽' arc_hide 비율만큼 + 그쪽 lead-in/out 직선영역을 숨김.
+      - 호1(fn쪽): [0, 호1시작 + arc_hide*호1길이]   (lead-in + 호1의 노드쪽 70%)
+      - 호2(tn쪽): [호2끝 - arc_hide*호2길이, 1.0]     (호2의 노드쪽 70% + lead-out)
+      - outer = _turn_sign 판정 (U자 CSC 는 양끝 같은 쪽이 outer).
+      - **합류/분기(degree>=3)인 끝만** 적용. 단순연결(degree 2, 단일 CSC)은 안 건드림
+        (U 가 실제 경로라 지우면 깨짐).
+    CSC 는 모양이 동일해 호 비율로 자르면 전부 일관.
+    반환 {edge:(left_iv, right_iv)} — outer 쪽만 채워짐."""
+    node_deg = {}
+    for e in edges:
+        node_deg[e.from_node] = node_deg.get(e.from_node, 0) + 1
+        node_deg[e.to_node] = node_deg.get(e.to_node, 0) + 1
+    out = {}
+    for e in edges:
+        if e.vos_rail_type not in types:
+            continue
+        clean = _edge_clean_points(e, nodes)
+        arc_ivs = _arc_t_intervals(clean)
+        if not arc_ivs:
+            continue
+        outer = _outer_rail_key(clean)
+        iv = []
+        a0, a1 = arc_ivs[0]       # fn 쪽 첫 호
+        b0, b1 = arc_ivs[-1]      # tn 쪽 마지막 호
+        if node_deg.get(e.from_node, 0) >= 3:      # fn 이 합류/분기일 때만
+            iv.append([0.0, round(a0 + arc_hide * (a1 - a0), 4)])
+        if node_deg.get(e.to_node, 0) >= 3:        # tn 이 합류/분기일 때만
+            iv.append([round(b1 - arc_hide * (b1 - b0), 4), 1.0])
+        if iv:
+            out[e.edge_name] = (iv, []) if outer == "L" else ([], iv)
+    return out
+
+
 def dual_rail_segments(edges, nodes, hide=None, gauge=RAIL_GAUGE):
     """엣지 중심선을 좌우 ±gauge/2 오프셋 → 2줄 레일 박스. 곡선 바깥=큰 반경.
-    가림은 compute_rail_hide 로 한번 계산한 hide={edge:(left_iv,right_iv)} 인터벌만 적용
-    (렌더는 계산 안 함). 반환: (rail_segs, []).
+    hide={edge:(left_iv,right_iv)} 정규화 인터벌이 있으면 그 구간 레일은 안 그림
+    (compute_curve_hide 가 계산). 디버그 색 유지. 반환: (rail_segs, []).
     각 rail_seg = (pos, yaw, scale, cls) — cls 는 디버그 색 클래스(RAIL_DEBUG_KEYS).
-    (pos/yaw/scale 만 쓰는 기존 호출부는 s[0],s[1],s[2] 그대로 호환)."""
+    (pos/yaw/scale 만 쓰는 호출부는 s[0],s[1],s[2] 그대로 호환)."""
     rails = []
     g = gauge / 2.0
     hide = hide or {}
