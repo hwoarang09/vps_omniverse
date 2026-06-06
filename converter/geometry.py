@@ -472,13 +472,31 @@ def _merge_intervals(ivs):
     return [[round(a, 4), round(b, 4)] for a, b in out]
 
 
-def compute_curve_hide(edges, nodes, types=("CURVE_CSC", "CURVE_90"),
+def _arc_subpoly(clean, a0, a1):
+    """정규화 [a0,a1] 구간의 sub-폴리라인 점들."""
+    cum = [0.0]
+    for i in range(1, len(clean)):
+        cum.append(cum[-1] + math.dist(clean[i - 1], clean[i]))
+    total = cum[-1] or 1.0
+    return [clean[i] for i in range(len(clean)) if a0 <= cum[i] / total <= a1]
+
+
+def _arc_turn_sign(clean, a0, a1):
+    """호 구간 회전부호 (+1=CCW→outer R, -1=CW→outer L). S커브 호별 outer 판정용."""
+    sub = _arc_subpoly(clean, a0, a1)
+    return _turn_sign(sub) if len(sub) >= 3 else 1.0
+
+
+def compute_curve_hide(edges, nodes,
+                       types=("CURVE_CSC", "CURVE_90", "CURVE_180", "S_CURVE"),
                        arc_hide=RAIL_CSC_ARC_HIDE):
     """곡선 outer 레일 trim — **각 호(arc)마다 그 호가 '속한'(가까운) edge 끝**이
     합류/분기(degree>=3)면, 그 끝에서 **호 길이의 arc_hide 비율 + 그쪽 lead** 를
     outer 레일에서 숨김. inner·직선은 안 건드림. 호 1개당 1번.
-      - CSC: 호 2개 → fn 쪽 호1, tn 쪽 호2 각각 (기존과 동일).
+      - CSC: 호 2개 → fn 쪽 호1, tn 쪽 호2 각각.
       - 90 : 호 1개 → 짧은 lead(호가 가까운) 쪽 끝 1번.
+      - 180: 호 1개(U턴)를 **apex(중점)에서 반쪽 2개로 쪼개** CSC 처럼 fn/tn 반쪽씩 처리
+        (양끝 겹침 제거 + apex 보존). 단일 U턴(degree2)은 자동 제외.
       - 비율은 '곡선영역(arc)' 기준이라 타입 공유. outer=_turn_sign 판정.
     반환 {edge:(left_iv, right_iv)} — outer 쪽만 채워짐."""
     node_deg = {}
@@ -493,19 +511,27 @@ def compute_curve_hide(edges, nodes, types=("CURVE_CSC", "CURVE_90"),
         arcs = _arc_t_intervals(clean)
         if not arcs:
             continue
-        outer = _outer_rail_key(clean)
-        iv = []
+        if e.vos_rail_type == "CURVE_180" and len(arcs) == 1:
+            a0, a1 = arcs[0]               # 180 단일 호 → apex 에서 반쪽 2개로
+            mid = (a0 + a1) / 2.0
+            arcs = [(a0, mid), (mid, a1)]
+        hide = {"L": [], "R": []}
+        is_s = e.vos_rail_type == "S_CURVE"
         for a0, a1 in arcs:
-            # 호가 fn/tn 중 가까운 끝에 '속함'. 그 끝이 합류/분기면 그쪽에서 비율 삭제.
+            # outer 호별 판정 (S 는 호 2개가 반대방향 → 서로 다른 레일).
+            ao = "R" if _arc_turn_sign(clean, a0, a1) > 0 else "L"
+            #  S: 호 작아 통째(frac 1.0) + degree 게이트 없음(차선변경, 양쪽 호 다).
+            #  그 외: 90° 호 기하 overlap 비율 arc_hide(0.7), 합류/분기(degree>=3)에서만.
+            frac = 1.0 if is_s else arc_hide
             if a0 <= (1.0 - a1):                       # fn 에 더 가까움
-                if node_deg.get(e.from_node, 0) >= 3:
-                    iv.append([0.0, round(a0 + arc_hide * (a1 - a0), 4)])
+                if is_s or node_deg.get(e.from_node, 0) >= 3:
+                    hide[ao].append([0.0, round(a0 + frac * (a1 - a0), 4)])
             else:                                      # tn 에 더 가까움
-                if node_deg.get(e.to_node, 0) >= 3:
-                    iv.append([round(a1 - arc_hide * (a1 - a0), 4), 1.0])
-        if iv:
-            iv = _merge_intervals(iv)
-            out[e.edge_name] = (iv, []) if outer == "L" else ([], iv)
+                if is_s or node_deg.get(e.to_node, 0) >= 3:
+                    hide[ao].append([round(a1 - frac * (a1 - a0), 4), 1.0])
+        L, R = _merge_intervals(hide["L"]), _merge_intervals(hide["R"])
+        if L or R:
+            out[e.edge_name] = (L, R)
     return out
 
 

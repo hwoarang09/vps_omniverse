@@ -48,14 +48,19 @@ edge별 (left_iv, right_iv) 정규화 인터벌을 병합(`_merge_intervals`). �
 구간만 안 그림. **직선 edge(LINEAR)는 본선이라 절대 안 건드림.**
 
 ### (A) 호 outer trim — `compute_curve_hide`
-- **각 호(arc)마다**, 그 호가 **가까운 edge 끝**(fn/tn 중 lead 가 짧은 쪽)이
-  **합류/분기(degree≥3)**면, 그 끝에서 **호 길이의 `RAIL_CSC_ARC_HIDE`(0.7) 비율 + 그쪽
-  lead** 를 **바깥(outer) 레일**에서 삭제. inner 호는 보존.
-  - **CSC**(호 2개): fn 쪽 호1, tn 쪽 호2 각각 → 최대 2번.
+- **각 호(arc)마다**, 그 호가 **가까운 edge 끝**(fn/tn 중 lead 가 짧은 쪽)에서 **호 길이의
+  비율 + 그쪽 lead** 를 그 호의 **바깥(outer) 레일**에서 삭제. inner 호는 보존.
+  - **CSC**(호 2개, 같은 방향): fn 쪽 호1, tn 쪽 호2 각각 → 최대 2번.
   - **CURVE_90**(호 1개): 짧은 lead 쪽 끝 1번.
-  - 비율을 **edge 전체가 아니라 곡선영역(arc) 기준**으로 재서 모든 타입이 같은 숫자 공유.
-  - outer = `_outer_rail_key`(`_turn_sign`: CCW→R, CW→L).
-  - **degree 2(단순연결)는 건드리지 않음** — 그 호는 실제 경로라 지우면 U 가 깨짐.
+  - **CURVE_180**(호 1개, U턴): 단일 호를 **apex(중점)에서 반쪽 2개로 쪼개** CSC 처럼 fn/tn
+    각각 → 양끝 겹침 제거 + apex(top) 보존.
+  - **S_CURVE**(호 2개, **반대 방향**): 호별로 outer 가 다른 레일(`_arc_turn_sign` 으로 호별
+    판정). 호각이 작아(≈43° < clear각 60°) 호 전체가 overlap → **비율 1.0(통째)**. 차선변경
+    이라 양끝 다 평행 라인 존재 → **degree 게이트 없이 양쪽 호 다 삭제**.
+- 비율 = `RAIL_CSC_ARC_HIDE`(0.7) = **90° 호의 기하 overlap 비율**(`_arc_clear_frac(r=0.5,
+  g)`≈0.718). **곡선영역(arc) 기준**이라 90/180/CSC(90° 호) 전부 0.7 공유. S(작은 호)만 1.0.
+- outer = 호별 `_arc_turn_sign`(CCW→R, CW→L). (CSC/90/180 은 호 방향 일관 → edge 단위와 동일)
+- **degree 2(단순연결)는 건드리지 않음** (S 제외) — 그 호는 실제 경로라 지우면 U 가 깨짐.
 
 ### (B) 직선영역 방해 trim — `compute_straight_block_hide`
 - 곡선의 **직선영역(lead-in/out)이 다른 통로를 "가로막는" 부분**만 삭제(**양쪽 레일**).
@@ -92,6 +97,9 @@ edge별 (left_iv, right_iv) 정규화 인터벌을 병합(`_merge_intervals`). �
 
 ## 6. 상태
 
-- ✅ 곡선영역(호) + 직선영역 방해 trim 완성, 전 타입(CSC/90) 일관. (2026-06-07)
-- TODO: CURVE_180 / S_CURVE 도 같은 `compute_rail_hide` 로 커버되는지 검수(S 는 호 2개가
-  반대 방향이라 `_outer_rail_key` 가 edge 단위 한쪽만 줘서 호별 outer 재판정 필요할 수 있음).
+- ✅ **Stage 2 완료: 곡선 4타입(CSC/90/180/S) 전부 호 outer trim + 직선영역 방해 trim.**
+  outer 는 **호별** `_arc_turn_sign` 판정이라 S(호 2개 반대방향)도 호마다 다른 레일로 처리.
+  S 는 inner 보존(연속)이 핵심 — 양쪽 레일 다 지우면 곡이 직들을 잇는 거라 토막남. (2026-06-07)
+- ⬜ **Stage 3 (다음): 직선(LINEAR) 처리.** 곡선이 가로지르는 직선 라인에서 라인쪽을 끊어
+  교차를 뚫기. 현재 직선영역 방해는 노드 공유 이웃만 검사 → 노드 안 나눈 라인을 가로지르는
+  교차(특히 S 가 비스듬히 여러 라인 가로지름)는 미처리. 모든 인접 라인 대상 교차 검출 필요.
