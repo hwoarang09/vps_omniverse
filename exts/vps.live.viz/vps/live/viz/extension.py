@@ -76,7 +76,8 @@ class VpsLiveVizExtension(omni.ext.IExt):
         self._render_t: float | None = None  # 현재 렌더 sim-time(ms) — latest_t - DELAY 추종
         self._last_wall: float | None = None  # 직전 _on_update wall clock(monotonic)
         self._sim_rate = 1.0       # sim-ms / wall-ms (EMA) — VPS 시뮬 진행속도(배속) 추정
-        self._last_latest: float | None = None  # 직전 latest_t (rate 측정용)
+        self._last_msg_t: float | None = None     # 직전 메시지 sim-time (rate 측정용)
+        self._last_msg_wall: float | None = None  # 직전 메시지 수신 wall clock
         self._client = None
         self._got_msg = False  # 첫 MQTT 수신 로그용
 
@@ -220,6 +221,17 @@ class VpsLiveVizExtension(omni.ext.IExt):
                 self._buf.setdefault(vid, []).append(sample)
             if t > self._latest_t:
                 self._latest_t = t
+            # sim 진행속도(rate)를 '메시지 도착 간격'으로 측정 → 안정적(프레임마다 X).
+            # (프레임마다 재면 메시지 사이엔 latest 안 변해 0 으로 떨어지고 도착시 튐 = 출렁임)
+            now = time.monotonic()
+            if self._last_msg_wall is not None and self._last_msg_t is not None and t > self._last_msg_t:
+                dtw = (now - self._last_msg_wall) * 1000.0  # wall ms
+                if dtw > 0:
+                    inst = (t - self._last_msg_t) / dtw     # sim-ms / wall-ms
+                    if 0.0 < inst < 50.0:
+                        self._sim_rate = self._sim_rate * 0.85 + inst * 0.15
+            self._last_msg_t = t
+            self._last_msg_wall = now
 
     @staticmethod
     def _sample_at(samples, rt):
@@ -263,6 +275,7 @@ class VpsLiveVizExtension(omni.ext.IExt):
         now_wall = time.monotonic()
         with self._lock:
             latest_t = self._latest_t
+            sim_rate = self._sim_rate
             buf = {vid: list(s) for vid, s in self._buf.items()}  # 얕은 복사(읽기용)
         if not buf or latest_t <= 0:
             self._last_wall = now_wall
@@ -275,26 +288,20 @@ class VpsLiveVizExtension(omni.ext.IExt):
             self._last_wall = now_wall
             return
 
-        # 렌더 sim-time = (latest_t - DELAY) 를 wall-clock 으로 부드럽게 추종.
-        # sim 정지 → latest_t 정지 → render_t 수렴 후 freeze. sim 배속/렉도 자동 보정.
+        # 렌더 sim-time = (latest_t - DELAY) 를 따라가되, '메시지 간격으로 측정한
+        # 안정적 sim_rate' 로 등속 전진 → 빨라졌다 느려졌다(출렁임) 없음.
         desired = latest_t - RENDER_DELAY_MS
         if self._render_t is None or self._last_wall is None:
             self._render_t = desired
         else:
             dt_wall = (now_wall - self._last_wall) * 1000.0
-            # VPS 시뮬 진행속도 측정 (sim-ms 가 wall-ms 당 얼마나 느는지) → EMA
-            if self._last_latest is not None and dt_wall > 0:
-                inst = (latest_t - self._last_latest) / dt_wall
-                if 0.0 <= inst < 50.0:  # 0~50배속 범위만 (스파이크 무시)
-                    self._sim_rate = self._sim_rate * 0.9 + inst * 0.1
-            # 렌더시각을 '시뮬 속도'로 전진 (배속이든 실시간이든 추종)
-            self._render_t += self._sim_rate * dt_wall
-            # 목표 지연(DELAY)으로 부드럽게 수렴 (지터 흡수)
-            self._render_t += (desired - self._render_t) * 0.05
-            # 미래 데이터는 안 봄(클램프). 너무 뒤처지면 컷해서 따라붙음.
+            # 안정 rate 로 등속 전진 (프레임마다 rate 재계산 안 함)
+            self._render_t += sim_rate * dt_wall
+            # 목표 지연으로 '아주 약하게'만 수렴 → 드리프트만 잡고 속도감은 유지
+            self._render_t += (desired - self._render_t) * 0.02
+            # 안전 클램프 (3초 버퍼라 평소엔 안 걸림)
             self._render_t = min(self._render_t, latest_t)
-            self._render_t = max(self._render_t, latest_t - 3.0 * RENDER_DELAY_MS)
-        self._last_latest = latest_t
+            self._render_t = max(self._render_t, latest_t - 6.0 * RENDER_DELAY_MS)
         self._last_wall = now_wall
         rt = self._render_t
 

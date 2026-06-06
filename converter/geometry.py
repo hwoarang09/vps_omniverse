@@ -210,7 +210,7 @@ def s_curve_points(edge, nodes, total_segments=DEFAULT_SEGMENTS):
 # 라우터 (EdgePointsCalculator.calculateRenderingPoints)
 # ----------------------------------------------------------------------------
 # 곡선 타입별 분할 수 (100 → 적응적. 작은 반경 곡선은 8~16 이면 충분히 매끄러움)
-RAIL_CURVE_SEGS = {"CURVE_90": 20, "CURVE_180": 40, "CURVE_CSC": 40, "S_CURVE": 36}
+RAIL_CURVE_SEGS = {"CURVE_90": 40, "CURVE_180": 40, "CURVE_CSC": 40, "S_CURVE": 36}
 
 
 def edge_points(edge, nodes):
@@ -458,15 +458,28 @@ def _outer_rail_key(clean):
 RAIL_CSC_ARC_HIDE = 0.7   # CSC 각 90도 호에서 '노드쪽' 이 비율만큼 outer 레일 숨김
 
 
-def compute_curve_hide(edges, nodes, types=("CURVE_CSC",), arc_hide=RAIL_CSC_ARC_HIDE):
-    """CSC(90호+직선+90호)의 **바깥(outer) 레일만** 숨긴다(안쪽·직선은 안 건드림).
-    각 호에서 '노드쪽' arc_hide 비율만큼 + 그쪽 lead-in/out 직선영역을 숨김.
-      - 호1(fn쪽): [0, 호1시작 + arc_hide*호1길이]   (lead-in + 호1의 노드쪽 70%)
-      - 호2(tn쪽): [호2끝 - arc_hide*호2길이, 1.0]     (호2의 노드쪽 70% + lead-out)
-      - outer = _turn_sign 판정 (U자 CSC 는 양끝 같은 쪽이 outer).
-      - **합류/분기(degree>=3)인 끝만** 적용. 단순연결(degree 2, 단일 CSC)은 안 건드림
-        (U 가 실제 경로라 지우면 깨짐).
-    CSC 는 모양이 동일해 호 비율로 자르면 전부 일관.
+def _merge_intervals(ivs):
+    """겹치거나 인접한 [a,b] 인터벌 병합."""
+    if not ivs:
+        return []
+    s = sorted([list(v) for v in ivs])
+    out = [s[0]]
+    for a, b in s[1:]:
+        if a <= out[-1][1] + 1e-6:
+            out[-1][1] = max(out[-1][1], b)
+        else:
+            out.append([a, b])
+    return [[round(a, 4), round(b, 4)] for a, b in out]
+
+
+def compute_curve_hide(edges, nodes, types=("CURVE_CSC", "CURVE_90"),
+                       arc_hide=RAIL_CSC_ARC_HIDE):
+    """곡선 outer 레일 trim — **각 호(arc)마다 그 호가 '속한'(가까운) edge 끝**이
+    합류/분기(degree>=3)면, 그 끝에서 **호 길이의 arc_hide 비율 + 그쪽 lead** 를
+    outer 레일에서 숨김. inner·직선은 안 건드림. 호 1개당 1번.
+      - CSC: 호 2개 → fn 쪽 호1, tn 쪽 호2 각각 (기존과 동일).
+      - 90 : 호 1개 → 짧은 lead(호가 가까운) 쪽 끝 1번.
+      - 비율은 '곡선영역(arc)' 기준이라 타입 공유. outer=_turn_sign 판정.
     반환 {edge:(left_iv, right_iv)} — outer 쪽만 채워짐."""
     node_deg = {}
     for e in edges:
@@ -477,18 +490,21 @@ def compute_curve_hide(edges, nodes, types=("CURVE_CSC",), arc_hide=RAIL_CSC_ARC
         if e.vos_rail_type not in types:
             continue
         clean = _edge_clean_points(e, nodes)
-        arc_ivs = _arc_t_intervals(clean)
-        if not arc_ivs:
+        arcs = _arc_t_intervals(clean)
+        if not arcs:
             continue
         outer = _outer_rail_key(clean)
         iv = []
-        a0, a1 = arc_ivs[0]       # fn 쪽 첫 호
-        b0, b1 = arc_ivs[-1]      # tn 쪽 마지막 호
-        if node_deg.get(e.from_node, 0) >= 3:      # fn 이 합류/분기일 때만
-            iv.append([0.0, round(a0 + arc_hide * (a1 - a0), 4)])
-        if node_deg.get(e.to_node, 0) >= 3:        # tn 이 합류/분기일 때만
-            iv.append([round(b1 - arc_hide * (b1 - b0), 4), 1.0])
+        for a0, a1 in arcs:
+            # 호가 fn/tn 중 가까운 끝에 '속함'. 그 끝이 합류/분기면 그쪽에서 비율 삭제.
+            if a0 <= (1.0 - a1):                       # fn 에 더 가까움
+                if node_deg.get(e.from_node, 0) >= 3:
+                    iv.append([0.0, round(a0 + arc_hide * (a1 - a0), 4)])
+            else:                                      # tn 에 더 가까움
+                if node_deg.get(e.to_node, 0) >= 3:
+                    iv.append([round(a1 - arc_hide * (a1 - a0), 4), 1.0])
         if iv:
+            iv = _merge_intervals(iv)
             out[e.edge_name] = (iv, []) if outer == "L" else ([], iv)
     return out
 

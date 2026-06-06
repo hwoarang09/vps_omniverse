@@ -68,7 +68,7 @@ def convert(map_dir, out_path, station_marker=True):
     # --- rails: instanced 박스 세그먼트 (LINEAR=1개, 곡선=적응적 8~16개) ---
     #   두꺼운 BasisCurves 튜브(37k점 테셀레이션) 대신 박스 세그먼트 PointInstancer.
     polylines = geo.rail_polylines(edges, nodes)   # 바닥 bbox/카메라용
-    # 곡선 trim: 곡선 레일이 이웃 직선영역 레일 위에 얹힌 부분만 숨김(타입별 정복중)
+    # 곡선 trim: 각 호마다 그 호가 속한 합류/분기 끝에서 outer 호비율 삭제 (CSC+90 통일)
     rail_hide = geo.compute_curve_hide(edges, nodes)
     rsegs, _tsegs = geo.dual_rail_segments(edges, nodes, hide=rail_hide)   # 2줄 레일
     # 디버그 색칠: 직선 edge=초록 / 곡선 직선영역=분홍 / 곡선 호영역=빨강
