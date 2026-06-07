@@ -596,7 +596,10 @@ def compute_straight_block_hide(edges, nodes, gauge=RAIL_GAUGE,
     return out
 
 
-RAIL_LINE_CUT_K = 2.0                   # 직선 끊는 길이 = K × (분기/합류 곡선 radius). 역산값.
+RAIL_LINE_CUT_K = {                     # 직선 끊는 길이 = K × (분기/합류 곡선 radius). 타입별 역산.
+    "CURVE_90": 2.0,                   # 90: 캘리브레이션 검증됨 (E0006).
+    "CURVE_180": 2.0,                  # 180: 임시(캘리브레이션 후 교체).
+}
 
 
 def _line90_matches(edges, nodes):
@@ -620,7 +623,7 @@ def _line90_matches(edges, nodes):
             ndp = nodes[nd]
             for cv in ne.get(nd, []):
                 c = ebn[cv]
-                if c.vos_rail_type != "CURVE_90":
+                if c.vos_rail_type not in ("CURVE_90", "CURVE_180"):
                     continue
                 if key == "fn" and c.from_node != nd:        # 라인 fn: 분기만
                     continue
@@ -629,7 +632,8 @@ def _line90_matches(edges, nodes):
                 far = c.to_node if c.from_node == nd else c.from_node
                 fp = nodes[far]
                 cross = ldx * (fp.editor_y - ndp.editor_y) - ldy * (fp.editor_x - ndp.editor_x)
-                m[key] = ("L" if cross > 0 else "R", c.radius)   # (안쪽 레일, radius)
+                # (안쪽 레일, radius, 타입). 타입별 K 다를 수 있어 타입도 보관.
+                m[key] = ("L" if cross > 0 else "R", c.radius, c.vos_rail_type)
                 break
         if m["fn"] or m["tn"]:
             res[e.edge_name] = m
@@ -637,9 +641,9 @@ def _line90_matches(edges, nodes):
 
 
 def compute_line_cut_hide(edges, nodes, k=RAIL_LINE_CUT_K):
-    """[Stage 3, CURVE_90 정복] 직선(LINEAR)의 **안쪽 레일 1줄**을, 분기(fn)/합류(tn)하는
-    90곡선 기준 **노드에서 k×radius 만큼** 끊는다(역산 공식: 캘리브레이션상 2×radius).
-      - 방향매칭(fn=분기/tn=합류)·안쪽레일·radius 는 _line90_matches 가 기하 자동.
+    """[Stage 3] 직선(LINEAR)의 **안쪽 레일 1줄**을, 분기(fn)/합류(tn)하는 곡선(90/180)
+    기준 **노드에서 K[타입]×radius 만큼** 끊는다(타입별 역산 공식).
+      - 방향매칭(fn=분기/tn=합류)·안쪽레일·radius·타입 은 _line90_matches 가 기하 자동.
       - 라인 길이로 나눠 t 인터벌. exact-clip 으로 정확히 그 지점에서 잘림.
     반환 {linear:(left_iv, right_iv)}."""
     ebn = {e.edge_name: e for e in edges}
@@ -650,11 +654,11 @@ def compute_line_cut_hide(edges, nodes, k=RAIL_LINE_CUT_K):
         llen = math.hypot(tn.editor_x - fn.editor_x, tn.editor_y - fn.editor_y) or 1.0
         cut = {"L": [], "R": []}
         if m["fn"]:
-            rail, r = m["fn"]
-            cut[rail].append([0.0, round(min(k * r / llen, 1.0), 4)])
+            rail, r, typ = m["fn"]
+            cut[rail].append([0.0, round(min(k[typ] * r / llen, 1.0), 4)])
         if m["tn"]:
-            rail, r = m["tn"]
-            cut[rail].append([round(max(1.0 - k * r / llen, 0.0), 4), 1.0])
+            rail, r, typ = m["tn"]
+            cut[rail].append([round(max(1.0 - k[typ] * r / llen, 0.0), 4), 1.0])
         if cut["L"] or cut["R"]:
             out[ln] = (_merge_intervals(cut["L"]), _merge_intervals(cut["R"]))
     return out
