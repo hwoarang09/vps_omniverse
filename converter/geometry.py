@@ -499,10 +499,11 @@ def compute_curve_hide(edges, nodes,
         (양끝 겹침 제거 + apex 보존). 단일 U턴(degree2)은 자동 제외.
       - 비율은 '곡선영역(arc)' 기준이라 타입 공유. outer=_turn_sign 판정.
     반환 {edge:(left_iv, right_iv)} — outer 쪽만 채워짐."""
-    node_deg = {}
+    # 분기(branch)=나가는 edge 2+, 합류(merge)=들어오는 edge 2+. fn=분기, tn=합류 일 때만.
+    outdeg, indeg = {}, {}
     for e in edges:
-        node_deg[e.from_node] = node_deg.get(e.from_node, 0) + 1
-        node_deg[e.to_node] = node_deg.get(e.to_node, 0) + 1
+        outdeg[e.from_node] = outdeg.get(e.from_node, 0) + 1
+        indeg[e.to_node] = indeg.get(e.to_node, 0) + 1
     out = {}
     for e in edges:
         if e.vos_rail_type not in types:
@@ -520,14 +521,14 @@ def compute_curve_hide(edges, nodes,
         for a0, a1 in arcs:
             # outer 호별 판정 (S 는 호 2개가 반대방향 → 서로 다른 레일).
             ao = "R" if _arc_turn_sign(clean, a0, a1) > 0 else "L"
-            #  S: 호 작아 통째(frac 1.0) + degree 게이트 없음(차선변경, 양쪽 호 다).
-            #  그 외: 90° 호 기하 overlap 비율 arc_hide(0.7), 합류/분기(degree>=3)에서만.
+            #  S: 호 작아 통째(frac 1.0). 그 외: 90° 호 overlap 비율 arc_hide(0.7).
+            #  **모든 타입 합류/분기(degree>=3)인 끝에서만** (S 도 tn 이 합류 아니면 안 지움).
             frac = 1.0 if is_s else arc_hide
-            if a0 <= (1.0 - a1):                       # fn 에 더 가까움
-                if is_s or node_deg.get(e.from_node, 0) >= 3:
+            if a0 <= (1.0 - a1):                       # fn 에 더 가까움 → fn 이 분기일 때만
+                if outdeg.get(e.from_node, 0) >= 2:
                     hide[ao].append([0.0, round(a0 + frac * (a1 - a0), 4)])
-            else:                                      # tn 에 더 가까움
-                if is_s or node_deg.get(e.to_node, 0) >= 3:
+            else:                                      # tn 에 더 가까움 → tn 이 합류일 때만
+                if indeg.get(e.to_node, 0) >= 2:
                     hide[ao].append([round(a1 - frac * (a1 - a0), 4), 1.0])
         L, R = _merge_intervals(hide["L"]), _merge_intervals(hide["R"])
         if L or R:
@@ -595,12 +596,74 @@ def compute_straight_block_hide(edges, nodes, gauge=RAIL_GAUGE,
     return out
 
 
-def compute_rail_hide(edges, nodes):
-    """곡선 레일 trim 통합: 호 outer(compute_curve_hide) + 직선영역 방해
-    (compute_straight_block_hide). edge별 좌/우 인터벌 병합."""
+RAIL_LINE_CUT_K = 2.0                   # 직선 끊는 길이 = K × (분기/합류 곡선 radius). 역산값.
+
+
+def _line90_matches(edges, nodes):
+    """각 LINEAR edge 에 대해, fn(분기)/tn(합류) 에서 방향매칭되는 CURVE_90 의
+    **안쪽 레일(L/R)과 그 곡선 radius**. 반환 {line_edge: {'fn':(rail,r)|None, 'tn':...}}."""
+    ebn = {e.edge_name: e for e in edges}
+    ne = {}
+    for e in edges:
+        ne.setdefault(e.from_node, []).append(e.edge_name)
+        ne.setdefault(e.to_node, []).append(e.edge_name)
+    res = {}
+    for e in edges:
+        if e.vos_rail_type not in ("LINEAR", ""):
+            continue
+        fn, tn = nodes.get(e.from_node), nodes.get(e.to_node)
+        if fn is None or tn is None:
+            continue
+        ldx, ldy = tn.editor_x - fn.editor_x, tn.editor_y - fn.editor_y
+        m = {"fn": None, "tn": None}
+        for nd, key in ((e.from_node, "fn"), (e.to_node, "tn")):
+            ndp = nodes[nd]
+            for cv in ne.get(nd, []):
+                c = ebn[cv]
+                if c.vos_rail_type != "CURVE_90":
+                    continue
+                if key == "fn" and c.from_node != nd:        # 라인 fn: 분기만
+                    continue
+                if key == "tn" and c.to_node != nd:          # 라인 tn: 합류만
+                    continue
+                far = c.to_node if c.from_node == nd else c.from_node
+                fp = nodes[far]
+                cross = ldx * (fp.editor_y - ndp.editor_y) - ldy * (fp.editor_x - ndp.editor_x)
+                m[key] = ("L" if cross > 0 else "R", c.radius)   # (안쪽 레일, radius)
+                break
+        if m["fn"] or m["tn"]:
+            res[e.edge_name] = m
+    return res
+
+
+def compute_line_cut_hide(edges, nodes, k=RAIL_LINE_CUT_K):
+    """[Stage 3, CURVE_90 정복] 직선(LINEAR)의 **안쪽 레일 1줄**을, 분기(fn)/합류(tn)하는
+    90곡선 기준 **노드에서 k×radius 만큼** 끊는다(역산 공식: 캘리브레이션상 2×radius).
+      - 방향매칭(fn=분기/tn=합류)·안쪽레일·radius 는 _line90_matches 가 기하 자동.
+      - 라인 길이로 나눠 t 인터벌. exact-clip 으로 정확히 그 지점에서 잘림.
+    반환 {linear:(left_iv, right_iv)}."""
+    ebn = {e.edge_name: e for e in edges}
     out = {}
-    for d in (compute_curve_hide(edges, nodes),
-              compute_straight_block_hide(edges, nodes)):
+    for ln, m in _line90_matches(edges, nodes).items():
+        e = ebn[ln]
+        fn, tn = nodes[e.from_node], nodes[e.to_node]
+        llen = math.hypot(tn.editor_x - fn.editor_x, tn.editor_y - fn.editor_y) or 1.0
+        cut = {"L": [], "R": []}
+        if m["fn"]:
+            rail, r = m["fn"]
+            cut[rail].append([0.0, round(min(k * r / llen, 1.0), 4)])
+        if m["tn"]:
+            rail, r = m["tn"]
+            cut[rail].append([round(max(1.0 - k * r / llen, 0.0), 4), 1.0])
+        if cut["L"] or cut["R"]:
+            out[ln] = (_merge_intervals(cut["L"]), _merge_intervals(cut["R"]))
+    return out
+
+
+def merge_hide(*dicts):
+    """여러 {edge:(L,R)} 를 병합."""
+    out = {}
+    for d in dicts:
         for en, (L, R) in d.items():
             if en in out:
                 pL, pR = out[en]
@@ -608,6 +671,14 @@ def compute_rail_hide(edges, nodes):
             else:
                 out[en] = (list(L), list(R))
     return out
+
+
+def compute_rail_hide(edges, nodes):
+    """곡선 trim 통합(Stage 2): 호 outer(compute_curve_hide) + 곡선 직선영역 방해
+    (compute_straight_block_hide). 직선 라인 끊기(Stage 3)는 line_cut.map 으로 convert
+    에서 따로 병합. edge별 좌/우 인터벌 병합."""
+    return merge_hide(compute_curve_hide(edges, nodes),
+                      compute_straight_block_hide(edges, nodes))
 
 
 def dual_rail_segments(edges, nodes, hide=None, gauge=RAIL_GAUGE):
@@ -637,19 +708,48 @@ def dual_rail_segments(edges, nodes, hide=None, gauge=RAIL_GAUGE):
         lh, rh = hide.get(e.edge_name, ([], []))
         for poly, intervals in ((left, lh), (right, rh)):
             for i in range(len(poly) - 1):
-                t = (cum[i] + cum[i + 1]) / 2.0 / total
-                if _in_intervals(t, intervals):
-                    continue
-                if not is_curve:
-                    cls = RAIL_CLS_GREEN
-                elif _in_intervals(t, arc_ivs):
-                    cls = RAIL_CLS_RED
-                else:
-                    cls = RAIL_CLS_PINK
-                s = _seg_box(poly[i], poly[i + 1], RAIL_RAIL_W)
-                if s:
-                    rails.append((s[0], s[1], s[2], cls))
+                tlo, thi = cum[i] / total, cum[i + 1] / total
+                span = (thi - tlo) or 1e-9
+                # hide 인터벌을 '정확한 t 지점'에서 잘라 보이는 부분(subseg)만 박스로.
+                #  → cut 경계가 박스단위가 아니라 소수점까지 정확.
+                for va, vb in _keep_subsegs(tlo, thi, intervals):
+                    tm = (va + vb) / 2.0
+                    if not is_curve:
+                        cls = RAIL_CLS_GREEN
+                    elif _in_intervals(tm, arc_ivs):
+                        cls = RAIL_CLS_RED
+                    else:
+                        cls = RAIL_CLS_PINK
+                    fa, fb = (va - tlo) / span, (vb - tlo) / span
+                    pa = (poly[i][0] + (poly[i + 1][0] - poly[i][0]) * fa,
+                          poly[i][1] + (poly[i + 1][1] - poly[i][1]) * fa,
+                          poly[i][2] + (poly[i + 1][2] - poly[i][2]) * fa)
+                    pb = (poly[i][0] + (poly[i + 1][0] - poly[i][0]) * fb,
+                          poly[i][1] + (poly[i + 1][1] - poly[i][1]) * fb,
+                          poly[i][2] + (poly[i + 1][2] - poly[i][2]) * fb)
+                    clipped = va > tlo + 1e-9 or vb < thi - 1e-9
+                    # 잘린 경계 박스는 mult=1.0(오버행 없이 정확), 온전한 박스는 연속용 mult.
+                    s = _seg_box(pa, pb, RAIL_RAIL_W, mult=1.0 if clipped else RAIL_SEG_MULT)
+                    if s:
+                        rails.append((s[0], s[1], s[2], cls))
     return rails, []
+
+
+def _keep_subsegs(tlo, thi, hide_ivs):
+    """[tlo,thi] 에서 hide 인터벌을 뺀 '보이는' 구간들 (a,b) 리스트."""
+    segs = [(tlo, thi)]
+    for ha, hb in hide_ivs:
+        nxt = []
+        for a, b in segs:
+            if hb <= a or ha >= b:
+                nxt.append((a, b))
+                continue
+            if ha > a:
+                nxt.append((a, ha))
+            if hb < b:
+                nxt.append((hb, b))
+        segs = nxt
+    return [(a, b) for a, b in segs if b - a > 1e-9]
 
 
 # ----------------------------------------------------------------------------

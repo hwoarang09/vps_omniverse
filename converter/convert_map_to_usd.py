@@ -20,7 +20,26 @@ from pxr import Gf
 from pxr import UsdGeom
 
 import usd_build as ub
-from mapio import parse_nodes, parse_edges, parse_stations, parse_station_body
+import json
+from mapio import (parse_nodes, parse_edges, parse_stations, parse_station_body,
+                   parse_rail_hide)
+
+
+def load_or_make_line_cut(path, edges, nodes):
+    """직선 끊기: **2×radius 공식(compute_line_cut_hide)이 기본**. line_cut.map 이 있으면
+    그 안의 non-empty 항목만 수동 오버라이드로 덮어씀(특수 케이스 손조정용).
+    반환 {linear_edge:(left_iv, right_iv)}."""
+    import geometry as geo
+    line_hide = geo.compute_line_cut_hide(edges, nodes)        # 공식 기본
+    if os.path.exists(path):
+        n = 0
+        for en, (L, R) in parse_rail_hide(path).items():
+            if L or R:                                         # 값 있는 것만 오버라이드
+                line_hide[en] = (L, R)
+                n += 1
+        if n:
+            print(f"  line_cut: {n} edges overridden by {os.path.basename(path)}")
+    return line_hide
 import geometry as geo
 import models
 
@@ -68,8 +87,11 @@ def convert(map_dir, out_path, station_marker=True):
     # --- rails: instanced 박스 세그먼트 (LINEAR=1개, 곡선=적응적 8~16개) ---
     #   두꺼운 BasisCurves 튜브(37k점 테셀레이션) 대신 박스 세그먼트 PointInstancer.
     polylines = geo.rail_polylines(edges, nodes)   # 바닥 bbox/카메라용
-    # 곡선 trim: 호 outer(호비율) + 직선영역이 길 가로막는 부분(transverse) 통합
+    # 곡선 trim(Stage2: 호 outer + 곡선 직선영역 방해)
     rail_hide = geo.compute_rail_hide(edges, nodes)
+    # 직선 trim(Stage3): line_cut.map (per-edge 손편집). 없으면 기본값 자동생성·저장.
+    line_hide = load_or_make_line_cut(f"{map_dir}/line_cut.map", edges, nodes)
+    rail_hide = geo.merge_hide(rail_hide, line_hide)
     rsegs, _tsegs = geo.dual_rail_segments(edges, nodes, hide=rail_hide)   # 2줄 레일
     # 디버그 색칠: 직선 edge=초록 / 곡선 직선영역=분홍 / 곡선 호영역=빨강
     rail_colors = {
@@ -80,9 +102,10 @@ def convert(map_dir, out_path, station_marker=True):
     rail_protos, rail_key_to_idx = [], {}
     for i, key in enumerate(geo.RAIL_DEBUG_KEYS):
         c = rail_colors[key]
+        # emissive 금지! 37k 레일이 emissive 면이면 RTX GI 가 광원으로 잡아 compute graph
+        #   폭주(HydraEngine error code 6) + fps 폭락. diffuse 만.
         mat = ub.add_preview_material(stage, f"/World/Looks/Rail_{key}",
-                                      diffuse=c, metallic=0.1, roughness=0.5,
-                                      emissive=tuple(v * 0.25 for v in c))
+                                      diffuse=c, metallic=0.1, roughness=0.5)
         pth = f"/World/Protos/box_rail_{key}"
         ub.bind_material(ub.add_unit_cube_proto(stage, pth, color=c), mat)
         rail_protos.append(pth)
