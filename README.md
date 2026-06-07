@@ -5,6 +5,10 @@ VPS(MapTool) 맵을 **USD로 변환**하고, 나아가 **Omniverse에서 차량 
 VPS 웹 시뮬레이터의 렌더링 로직을 Omniverse(USD/Kit)로 옮기는 것이 목표.
 출처 로직: `vps/src/components/three/entities/edge/points_calculator/*`, `renderers/*`.
 
+🎬 **Omniverse 실시간 렌더 데모 (영상)**: <https://youtu.be/ug_QaS7qJH8>
+
+[![Omniverse 실시간 렌더 데모](https://img.youtube.com/vi/ug_QaS7qJH8/maxresdefault.jpg)](https://youtu.be/ug_QaS7qJH8)
+
 ---
 
 ## 폴더 구조

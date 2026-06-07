@@ -40,7 +40,8 @@ MQTT_TOPIC = f"VPS/viz/{VIZ_FAB}/vehicles"
 VEHICLE_INSTANCER_PATH = "/World/Vehicles"
 # 프로토타입을 인스턴서 하위에 둔다 → Hydra 가 PointInstancer 하위를 prune 하므로
 # 원본이 원점에 standalone 으로 안 그려지고 instance 로만 그려진다.
-VEHICLE_PROTO_PATH = "/World/Vehicles/Protos/Vehicle"
+# JobState 색마다 프로토타입 1개(Vehicle_{jobState}) → protoIndex 로 차량 색 전환.
+VEHICLE_PROTOS_PARENT = "/World/Vehicles/Protos"
 
 RAIL_Z = 3.8        # 레일(edge) 높이 (converter 와 동일, node editor_z)
 VEHICLE_Z = RAIL_Z  # 인스턴스는 레일 점에 둠 — OHT 형상이 자체 z오프셋(바퀴=레일)을 가짐
@@ -51,10 +52,27 @@ RAIL_GAUGE = 0.4    # 두 레일 간격 (geometry.RAIL_GAUGE) — 바퀴를 Y=±
 # (더 부드럽게 원하면 5000, 더 실시간이면 1000~2000 로)
 RENDER_DELAY_MS = 3000.0
 
-# OHT 형상 색 (gree1.png 레퍼런스: 메탈릭 그레이/화이트 톤)
-OHT_CARRIAGE_COLOR = (0.22, 0.22, 0.25)  # 레일 타는 대차/바퀴 — 진회색
-OHT_BODY_COLOR     = (0.50, 0.52, 0.56)  # 매달린 본체 — 메탈 그레이
-OHT_FOUP_COLOR     = (0.82, 0.82, 0.86)  # FOUP — 밝은 회색/화이트
+# OHT 형상 색 — 레일에 걸쳐진 대차(뚜껑)만 JobState 색으로 칠해
+# "픽업하러 가는놈/드롭하러 가는놈/대기중인놈"을 멀리서도 구분. 본체+FOUP 는 회색 고정.
+OHT_WHEEL_COLOR = (0.22, 0.22, 0.25)  # 바퀴 — 진회색(상태무관)
+OHT_BODY_COLOR  = (1.0, 1.0, 1.0)     # 매달린 본체(veh) — 강한 흰색(상태무관)
+OHT_FOUP_COLOR  = (1.0, 1.0, 1.0)     # FOUP(veh) — 강한 흰색(상태무관)
+
+# JobState(VPS) → 대차(뚜껑) 색. 인덱스 = JobState enum 값(0..6) = PointInstancer protoIndex.
+# 색은 VPS src/config/colors.ts (VEHICLE_JOB_STATE_COLORS) 와 동일 hex 를 0~1 RGB 로 변환.
+#   0 INITIALIZING #374151 / 1 IDLE #ffffff / 2 MOVE_TO_LOAD #ec4899 / 3 LOADING #06b6d4
+#   4 MOVE_TO_UNLOAD #3b82f6 / 5 UNLOADING #f97316 / 6 ERROR #ef4444
+JOB_STATE_COLORS = [
+    (0.216, 0.255, 0.318),  # 0 INITIALIZING — 회색 (#374151)
+    (1.000, 1.000, 1.000),  # 1 IDLE         — 흰색 (#ffffff) 대기/그냥 움직이는 놈
+    (0.925, 0.282, 0.600),  # 2 MOVE_TO_LOAD — 분홍 (#ec4899) 픽업하러 가는놈
+    (0.024, 0.714, 0.831),  # 3 LOADING      — 청록 (#06b6d4) 픽업 중
+    (0.231, 0.510, 0.965),  # 4 MOVE_TO_UNLOAD — 파랑 (#3b82f6) 드롭하러 가는놈
+    (0.976, 0.451, 0.086),  # 5 UNLOADING    — 주황 (#f97316) 드롭 중
+    (0.937, 0.267, 0.267),  # 6 ERROR        — 빨강 (#ef4444)
+]
+NUM_JOB_STATES = len(JOB_STATE_COLORS)
+DEFAULT_JOB_STATE = 1  # 상태정보 없는(구버전 payload) 차량 = IDLE(흰색)
 
 
 def _lerp_angle(a: float, b: float, t: float) -> float:
@@ -71,7 +89,8 @@ class VpsLiveVizExtension(omni.ext.IExt):
         self._lock = threading.Lock()
         # 타임스탬프 스냅샷 버퍼 (차량별 시간순) → 렌더지연 보간
         self._buf: dict[int, list[tuple[float, float, float]]] = {}  # id → [(t_ms, x, y, rot), ...]
-        #   ↑ 실제로는 (t, x, y, rot) 4-튜플. 주석 타입은 단순화 표기.
+        #   ↑ 실제로는 (t, x, y, rot, spd) 5-튜플. 주석 타입은 단순화 표기.
+        self._job: dict[int, int] = {}  # id → JobState(최신값, 보간 안 함) → protoIndex 색
         self._latest_t = 0.0       # 수신한 최신 sim-time(ms)
         self._render_t: float | None = None  # 현재 렌더 sim-time(ms) — latest_t - DELAY 추종
         self._last_wall: float | None = None  # 직전 _on_update wall clock(monotonic)
@@ -119,15 +138,22 @@ class VpsLiveVizExtension(omni.ext.IExt):
             self._instancer.CreateProtoIndicesAttr().Set(Vt.IntArray([]))
             self._instancer.CreateOrientationsAttr().Set(Vt.QuathArray([]))
 
-        # OHT 프로토타입 (인스턴서 하위 → 원점 잔상 안 생김)
-        # 리로드마다 형상/크기 갱신되게 기존 것 제거 후 재생성 (튜닝 편의)
-        if stage.GetPrimAtPath(VEHICLE_PROTO_PATH):
-            stage.RemovePrim(VEHICLE_PROTO_PATH)
-        self._build_oht_proto(stage, VEHICLE_PROTO_PATH)
-        self._instancer.CreatePrototypesRel().SetTargets([Sdf.Path(VEHICLE_PROTO_PATH)])
+        # OHT 프로토타입 — JobState 색마다 1개 (인스턴서 하위 → 원점 잔상 안 생김).
+        # 리로드마다 형상/색 갱신되게 기존 것 제거 후 재생성 (튜닝 편의).
+        # protoIndex == JobState enum 값 이 되도록 인덱스 순서대로 생성.
+        if stage.GetPrimAtPath(VEHICLE_PROTOS_PARENT):
+            stage.RemovePrim(VEHICLE_PROTOS_PARENT)
+        proto_paths = []
+        for idx, color in enumerate(JOB_STATE_COLORS):
+            p = f"{VEHICLE_PROTOS_PARENT}/Vehicle_{idx}"
+            self._build_oht_proto(stage, p, color)
+            proto_paths.append(Sdf.Path(p))
+        self._instancer.CreatePrototypesRel().SetTargets(proto_paths)
 
     # --- OHT 형상 (gree1.png): 레일 타는 대차(위) + 매달린 본체 + FOUP(아래) --
-    def _build_oht_proto(self, stage, path):
+    #     carriage_color = JobState 색 (레일에 걸쳐진 대차 "뚜껑"에만 적용).
+    #     본체+FOUP(veh) 는 강한 흰색, 바퀴는 진회색 고정.
+    def _build_oht_proto(self, stage, path, carriage_color):
         """로컬축 X=진행, Y=좌우, Z=상. 인스턴스가 레일점(z=RAIL_Z)에 놓이므로
         로컬 z=0 = 레일 높이.
           - 대차(바퀴+상판): 두 레일(Y=±g) 위 (z>0) — "바퀴 걸치는 부분"
@@ -150,7 +176,7 @@ class VpsLiveVizExtension(omni.ext.IExt):
             cyl.GetRadiusAttr().Set(0.05)
             cyl.GetHeightAttr().Set(0.04)
             cyl.GetAxisAttr().Set("Y")  # Y축 원통 → 진행(X) 방향으로 구름
-            cyl.CreateDisplayColorAttr().Set(Vt.Vec3fArray([Gf.Vec3f(*OHT_CARRIAGE_COLOR)]))
+            cyl.CreateDisplayColorAttr().Set(Vt.Vec3fArray([Gf.Vec3f(*OHT_WHEEL_COLOR)]))
             UsdGeom.XformCommonAPI(cyl).SetTranslate(Gf.Vec3d(*trans))
 
         # --- 대차 (레일 위, "바퀴 걸치는 부분") ---
@@ -158,12 +184,12 @@ class VpsLiveVizExtension(omni.ext.IExt):
         wheel("wheel_fr", (0.13, -g, 0.05))
         wheel("wheel_bl", (-0.13, +g, 0.05))
         wheel("wheel_br", (-0.13, -g, 0.05))
-        box("carriage", (0.38, 0.50, 0.06), (0.0, 0.0, 0.09), OHT_CARRIAGE_COLOR)
+        # 레일에 걸쳐진 대차 "뚜껑" — 여기만 JobState 색으로 칠해 상태 구분
+        box("carriage", (0.38, 0.50, 0.06), (0.0, 0.0, 0.09), carriage_color)
         # --- 매달림 목 (레일 사이 gauge 틈으로 하강) ---
-        box("neck", (0.10, 0.10, 0.22), (0.0, 0.0, -0.01), OHT_CARRIAGE_COLOR)
-        # --- 본체 (레일 아래 매달림) ---
+        box("neck", (0.10, 0.10, 0.22), (0.0, 0.0, -0.01), OHT_WHEEL_COLOR)
+        # --- 본체 + FOUP (레일 아래 매달림, veh) — 강한 흰색 고정 ---
         box("body", (0.40, 0.36, 0.32), (0.0, 0.0, -0.27), OHT_BODY_COLOR)
-        # --- FOUP (맨 아래) ---
         box("foup", (0.28, 0.28, 0.24), (0.0, 0.0, -0.54), OHT_FOUP_COLOR)
 
     # --- MQTT ----------------------------------------------------------
@@ -198,7 +224,8 @@ class VpsLiveVizExtension(omni.ext.IExt):
         # plan 스키마: bare 배열 [{id, x, y, rot}, ...]. 1Hz.
         # 차량은 레일 위 → z 는 레일 높이(RAIL_Z=3.8) 고정, rot 은 Z축 회전(rad).
         # (Z-up identity 좌표계 — converter 와 동일, 축 안 바꿈)
-        # 포맷: {"t": sim_ms, "v": [[id, x, y, rot, spd], ...]}
+        # 포맷: {"t": sim_ms, "v": [[id, x, y, rot, spd, job], ...]}
+        #   job = JobState enum(0..6) → 색. 없으면(구버전) IDLE.
         try:
             t = float(data["t"])
             rows = data["v"]
@@ -215,10 +242,12 @@ class VpsLiveVizExtension(omni.ext.IExt):
                 try:
                     vid = int(r[0])
                     spd = float(r[4]) if len(r) > 4 else 0.0
+                    job = int(r[5]) if len(r) > 5 else DEFAULT_JOB_STATE
                     sample = (t, float(r[1]), float(r[2]), float(r[3]), spd)  # (t, x, y, rot, spd)
                 except (IndexError, ValueError, TypeError):
                     continue
                 self._buf.setdefault(vid, []).append(sample)
+                self._job[vid] = job  # 색은 보간 없이 최신 상태로 즉시 반영
             if t > self._latest_t:
                 self._latest_t = t
             # sim 진행속도(rate)를 '메시지 도착 간격'으로 측정 → 안정적(프레임마다 X).
@@ -277,6 +306,7 @@ class VpsLiveVizExtension(omni.ext.IExt):
             latest_t = self._latest_t
             sim_rate = self._sim_rate
             buf = {vid: list(s) for vid, s in self._buf.items()}  # 얕은 복사(읽기용)
+            job = dict(self._job)  # id → JobState (색)
         if not buf or latest_t <= 0:
             self._last_wall = now_wall
             return
@@ -308,17 +338,19 @@ class VpsLiveVizExtension(omni.ext.IExt):
         ids = sorted(buf.keys())
         pts = []
         quats = []
+        proto_indices = []
         for i in ids:
             x, y, rot = self._sample_at(buf[i], rt)
             pts.append(Gf.Vec3f(x, y, VEHICLE_Z))
             q = Gf.Rotation(Gf.Vec3d(0, 0, 1), rot).GetQuat()  # Z축 회전 (진행방향)
             im = q.GetImaginary()
             quats.append(Gf.Quath(q.GetReal(), im[0], im[1], im[2]))
+            # protoIndex = JobState 값 → 해당 색 프로토타입. 범위 밖이면 IDLE(흰색).
+            j = job.get(i, DEFAULT_JOB_STATE)
+            proto_indices.append(j if 0 <= j < NUM_JOB_STATES else DEFAULT_JOB_STATE)
         self._instancer.CreatePositionsAttr().Set(Vt.Vec3fArray(pts))
         self._instancer.CreateOrientationsAttr().Set(Vt.QuathArray(quats))
-        proto_idx = self._instancer.GetProtoIndicesAttr().Get()
-        if proto_idx is None or len(proto_idx) != len(ids):
-            self._instancer.CreateProtoIndicesAttr().Set(Vt.IntArray([0] * len(ids)))
+        self._instancer.CreateProtoIndicesAttr().Set(Vt.IntArray(proto_indices))
 
         # 버퍼 트림 — rt 보다 충분히 과거 샘플 제거(왼쪽 앵커 1개는 보존)
         cutoff = rt - 2.0 * RENDER_DELAY_MS
