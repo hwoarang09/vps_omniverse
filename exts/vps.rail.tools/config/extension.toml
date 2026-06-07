@@ -1,0 +1,16 @@
+[package]
+version = "0.1.0"
+title = "VPS Rail Tools"
+description = "레일 색(realistic/debug) 토글 등 레일 디버그 UI. railColor variantSet 전환."
+category = "Simulation"
+authors = ["vosui"]
+repository = ""
+
+# omni.usd=스테이지/variantSet 접근, omni.ui=버튼 UI.
+[dependencies]
+"omni.usd" = {}
+"omni.ui" = {}
+
+# on_startup 진입점
+[[python.module]]
+name = "vps.rail.tools"

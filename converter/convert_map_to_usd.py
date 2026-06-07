@@ -17,7 +17,7 @@ import os
 import sys
 from pxr import Gf
 
-from pxr import UsdGeom
+from pxr import UsdGeom, UsdShade
 
 import usd_build as ub
 import json
@@ -93,21 +93,23 @@ def convert(map_dir, out_path, station_marker=True):
     line_hide = load_or_make_line_cut(f"{map_dir}/line_cut.map", edges, nodes)
     rail_hide = geo.merge_hide(rail_hide, line_hide)
     rsegs, _tsegs = geo.dual_rail_segments(edges, nodes, hide=rail_hide)   # 2줄 레일
-    # 디버그 색칠: 직선 edge=초록 / 곡선 직선영역=분홍 / 곡선 호영역=빨강
+    # 레일 색: realistic(알루미늄 그레이, 기본) / debug(초록=직선·분홍=곡선직선·빨강=호).
+    #   USD railColor variantSet 으로 토글 (Composer Variant UI 또는 omni.ui 버튼).
+    #   emissive 금지(37k 면이 GI 광원→HydraEngine error6+fps폭락).
     rail_colors = {
         geo.RAIL_CLS_GREEN: (0.15, 0.85, 0.25),
         geo.RAIL_CLS_PINK:  (1.00, 0.45, 0.75),
         geo.RAIL_CLS_RED:   (0.95, 0.12, 0.12),
     }
+    mat_real = ub.add_preview_material(stage, "/World/Looks/Rail_realistic",
+                                       diffuse=(0.52, 0.57, 0.64), metallic=0.65, roughness=0.35)
+    mat_dbg = {k: ub.add_preview_material(stage, f"/World/Looks/Rail_{k}",
+                                          diffuse=rail_colors[k], metallic=0.1, roughness=0.5)
+               for k in geo.RAIL_DEBUG_KEYS}
     rail_protos, rail_key_to_idx = [], {}
     for i, key in enumerate(geo.RAIL_DEBUG_KEYS):
-        c = rail_colors[key]
-        # emissive 금지! 37k 레일이 emissive 면이면 RTX GI 가 광원으로 잡아 compute graph
-        #   폭주(HydraEngine error code 6) + fps 폭락. diffuse 만.
-        mat = ub.add_preview_material(stage, f"/World/Looks/Rail_{key}",
-                                      diffuse=c, metallic=0.1, roughness=0.5)
         pth = f"/World/Protos/box_rail_{key}"
-        ub.bind_material(ub.add_unit_cube_proto(stage, pth, color=c), mat)
+        ub.bind_material(ub.add_unit_cube_proto(stage, pth, color=rail_colors[key]), mat_real)
         rail_protos.append(pth)
         rail_key_to_idx[key] = i
     ub.make_instancer(stage, "/World/Rails", rail_protos,
@@ -115,6 +117,17 @@ def convert(map_dir, out_path, station_marker=True):
                       orientations=[ub.quat_yaw_rad(s[1]) for s in rsegs],
                       scales=[Gf.Vec3f(*s[2]) for s in rsegs],
                       proto_indices=[rail_key_to_idx[s[3]] for s in rsegs])
+    # railColor variantSet: realistic(전부 그레이) / debug(타입별 색). 기본 realistic.
+    protos_prim = stage.GetPrimAtPath("/World/Protos")
+    vset = protos_prim.GetVariantSets().AddVariantSet("railColor")
+    for vname, matof in (("realistic", lambda k: mat_real), ("debug", lambda k: mat_dbg[k])):
+        vset.AddVariant(vname)
+        vset.SetVariantSelection(vname)
+        with vset.GetVariantEditContext():
+            for key in geo.RAIL_DEBUG_KEYS:
+                UsdShade.MaterialBindingAPI.Apply(
+                    stage.GetPrimAtPath(f"/World/Protos/box_rail_{key}")).Bind(matof(key))
+    vset.SetVariantSelection("realistic")
 
     # --- device(장비): station_body.map 있으면 사용, 없으면 자동 계산 ---
     #   형상은 models.py 빌더가 model 이름(EFEM/LPS/NTB/STOCKER/OHB_RACK)으로 분기.

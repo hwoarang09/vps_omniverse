@@ -597,9 +597,26 @@ def compute_straight_block_hide(edges, nodes, gauge=RAIL_GAUGE,
 
 
 RAIL_LINE_CUT_K = {                     # 직선 끊는 길이 = K × (분기/합류 곡선 radius). 타입별 역산.
-    "CURVE_90": 2.0,                   # 90: 캘리브레이션 검증됨 (E0006).
-    "CURVE_180": 2.0,                  # 180: 임시(캘리브레이션 후 교체).
+    "CURVE_90": 2.0,                   # 검증됨 (E0006).
+    "CURVE_180": 2.0,                  # 검증됨 (E0002).
+    "CURVE_CSC": 2.0,                  # 임시(캘리브레이션 후 교체).
+    "S_CURVE": 2.0,                    # 임시(캘리브레이션 후 교체).
 }
+
+
+def _pt_at_t(cl, t):
+    """중심선 점열 cl 의 정규화 t 위치 월드 점(x,y)."""
+    cum = [0.0]
+    for i in range(1, len(cl)):
+        cum.append(cum[-1] + math.dist(cl[i - 1], cl[i]))
+    total = cum[-1] or 1.0
+    tgt = t * total
+    for i in range(1, len(cl)):
+        if cum[i] >= tgt:
+            f = (tgt - cum[i - 1]) / ((cum[i] - cum[i - 1]) or 1.0)
+            return (cl[i - 1][0] + (cl[i][0] - cl[i - 1][0]) * f,
+                    cl[i - 1][1] + (cl[i][1] - cl[i - 1][1]) * f)
+    return (cl[-1][0], cl[-1][1])
 
 
 def _line90_matches(edges, nodes):
@@ -623,16 +640,21 @@ def _line90_matches(edges, nodes):
             ndp = nodes[nd]
             for cv in ne.get(nd, []):
                 c = ebn[cv]
-                if c.vos_rail_type not in ("CURVE_90", "CURVE_180"):
+                if c.vos_rail_type not in _CURVE_TYPES:
                     continue
                 if key == "fn" and c.from_node != nd:        # 라인 fn: 분기만
                     continue
                 if key == "tn" and c.to_node != nd:          # 라인 tn: 합류만
                     continue
-                far = c.to_node if c.from_node == nd else c.from_node
-                fp = nodes[far]
-                cross = ldx * (fp.editor_y - ndp.editor_y) - ldy * (fp.editor_x - ndp.editor_x)
-                # (안쪽 레일, radius, 타입). 타입별 K 다를 수 있어 타입도 보관.
+                # 안쪽 레일 = 그 노드쪽 '호의 중점'이 라인 어느 쪽인지(world cross).
+                #  far-node 로 하면 S(굽이 되돌아감)에서 반대쪽이 잡힘 → 호 중점이 정답.
+                ccl = _edge_clean_points(c, nodes)
+                arcs = _arc_t_intervals(ccl)
+                if not arcs:
+                    continue
+                na = arcs[0] if c.from_node == nd else arcs[-1]
+                amx, amy = _pt_at_t(ccl, (na[0] + na[1]) / 2.0)
+                cross = ldx * (amy - ndp.editor_y) - ldy * (amx - ndp.editor_x)
                 m[key] = ("L" if cross > 0 else "R", c.radius, c.vos_rail_type)
                 break
         if m["fn"] or m["tn"]:
