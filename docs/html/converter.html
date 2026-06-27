@@ -20577,8 +20577,9 @@ z
     const num = lvl===2?`${c[0]}`: lvl===3?`${c[0]}.${c[1]}`:`${c[0]}.${c[1]}.${c[2]}`;
     const id = 'sec-'+num.replace(/\./g,'-');
     h.id = id;
+    const txt = h.textContent;            // 번호 span 삽입 '전' 순수 제목 캡처
     h.insertAdjacentHTML('afterbegin', `<span class="hnum">${num}</span>`);
-    entries.push({el:h, level:lvl, num, id, text:h.textContent});
+    entries.push({el:h, level:lvl, num, id, text:txt});
   });
 
   // 사이드바 트리 생성
