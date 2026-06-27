@@ -12,8 +12,8 @@ usage: python build_station_body.py <map_dir> [out.map]
 import sys
 from collections import Counter
 
-from mapio import parse_nodes, parse_edges, parse_stations
 import geometry as geo
+from mapio import parse_edges, parse_nodes, parse_stations
 
 HEADER = (
     "# station_body.map — station(EQ/OHB/STK) → device(장비) 묶음 + 그리기 정보\n"

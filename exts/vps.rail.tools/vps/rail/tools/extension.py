@@ -10,8 +10,8 @@ MQTT 차량 viz(vps.live.viz)와 분리 — 색 토글은 MQTT 와 무관하므�
 from __future__ import annotations
 
 import omni.ext
-import omni.usd
 import omni.ui as ui
+import omni.usd
 
 RAIL_VARIANT_PRIM = "/World/Protos"     # converter 가 variantSet 을 여기에 author
 RAIL_VARIANT_SET = "railColor"

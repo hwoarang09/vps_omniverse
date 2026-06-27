@@ -1,0 +1,20 @@
+# vps_omniverse 파이썬 코드 품질 설정 (code-quality-agent 부트스트랩)
+# 처음엔 관대하게: 실제 버그성(F)·기본 스타일(E)·import 정렬(I)만. 규칙은 점진적으로 조인다.
+line-length = 100
+target-version = "py310"
+
+# 변환기는 순수 usd-core(pxr), 런타임(exts)만 Omniverse API.
+extend-exclude = [
+    ".venv",
+    "venv",
+    "out",
+    "__pycache__",
+    "*.usda",
+]
+
+[lint]
+select = ["E", "F", "I"]
+
+[format]
+quote-style = "double"
+indent-style = "space"

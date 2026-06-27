@@ -10,8 +10,7 @@ VPS 맵 파일 파서 — VPS/src/store/system/cfgStore.ts 의 파싱 로직을 
 import csv
 import io
 import json
-from dataclasses import dataclass, field
-
+from dataclasses import dataclass
 
 # nodes.map 의 editor_z 누락 시 기본값 (renderConfig MARKER Z = 3.8)
 DEFAULT_NODE_Z = 3.8

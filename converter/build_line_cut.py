@@ -14,10 +14,10 @@ USD 레이어 합성(LIVRPS) 데모에서 이 스크립트의 책임은 단 하�
 """
 import os
 import sys
-from pxr import Usd, UsdGeom, Vt
 
-from mapio import parse_nodes, parse_edges
 import geometry as geo
+from mapio import parse_edges, parse_nodes
+from pxr import Usd, UsdGeom, Vt
 
 
 def build(map_dir, out_dir):
@@ -42,7 +42,7 @@ def build(map_dir, out_dir):
     print(f"WROTE {path}")
     print(f"  hidden : {len(hidden)} / {len(tagged)} rail segments (invisibleIds)")
     print(f"  합성해서 보기: usdview {out_dir}/composed.usda")
-    print(f"  비파괴 확인: 이 파일의 invisibleIds 비우면 raw 2줄로 복귀")
+    print("  비파괴 확인: 이 파일의 invisibleIds 비우면 raw 2줄로 복귀")
     return path
 
 

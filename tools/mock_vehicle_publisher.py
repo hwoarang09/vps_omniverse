@@ -38,8 +38,8 @@ import paho.mqtt.client as mqtt
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _CONVERTER = os.path.abspath(os.path.join(_HERE, "..", "converter"))
 sys.path.insert(0, _CONVERTER)
-import mapio      # noqa: E402
-import geometry   # noqa: E402
+import geometry  # noqa: E402
+import mapio  # noqa: E402
 
 DEFAULT_MAP = os.path.abspath(os.path.join(_HERE, "..", "input", "fab_map"))
 

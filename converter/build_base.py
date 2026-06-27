@@ -15,16 +15,12 @@ VPS 의 파싱 + 지오메트리 로직을 그대로 쓰고(=mapio.py, geometry.
 """
 import os
 import sys
-from pxr import Gf
-
-from pxr import UsdGeom, UsdShade
-
-import usd_build as ub
-import json
-from mapio import parse_nodes, parse_edges, parse_stations, parse_station_body
 
 import geometry as geo
 import models
+import usd_build as ub
+from mapio import parse_edges, parse_nodes, parse_station_body, parse_stations
+from pxr import Gf, UsdGeom, UsdShade
 
 
 def add_top_down_camera(stage, positions, path="/World/TopCam", margin=1.08):

@@ -10,7 +10,7 @@ USD 대응:
       protoIndices  <- 어떤 prototype 을 쓸지 (여기선 전부 0)
       (orientations / scales 는 생략 = identity)
 """
-from pxr import Usd, UsdGeom, Gf, Vt, Sdf
+from pxr import Gf, Usd, UsdGeom, Vt
 
 OUT = "out/01_min_instancer.usda"
 

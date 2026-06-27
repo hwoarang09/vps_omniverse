@@ -16,6 +16,7 @@ VPS 흐름 (출력만 USD 로 교체):
   회전    = Z축 atan2(dy, dx)
 """
 import math
+
 from mapio import Node
 
 DEFAULT_SEGMENTS = 100
@@ -1251,7 +1252,7 @@ def station_instances(stations, nodes, edges):
 
 
 if __name__ == "__main__":
-    from mapio import parse_nodes, parse_edges
+    from mapio import parse_edges, parse_nodes
     base = "../input/fab_map"
     nodes = parse_nodes(f"{base}/nodes.map")
     edges = parse_edges(f"{base}/edges.map")

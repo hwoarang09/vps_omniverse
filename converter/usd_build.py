@@ -8,7 +8,8 @@ PointInstancer 의 (positions / orientations / scales) 로 변형해서 찍는�
   setMatrixAt(i, compose(pos, quat, scale)) 하는 것과 1:1 대응.
 """
 import math
-from pxr import Usd, UsdGeom, UsdShade, UsdLux, Gf, Vt, Sdf
+
+from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdShade, Vt
 
 
 def make_stage(path, up="Z", meters_per_unit=1.0, root="/World"):
@@ -45,7 +46,7 @@ def add_unit_cube_proto(stage, path, color=(0.8, 0.8, 0.8)):
     # 면별 바깥 법선 명시 (없으면 조명이 어둡게 계산 -> 색이 검게 보임)
     fn = [(0, 0, 1), (0, 0, -1), (0, -1, 0), (0, 1, 0), (1, 0, 0), (-1, 0, 0)]
     normals = [Gf.Vec3f(*n) for n in fn for _ in range(4)]
-    nattr = mesh.CreateNormalsAttr(Vt.Vec3fArray(normals))
+    mesh.CreateNormalsAttr(Vt.Vec3fArray(normals))
     mesh.SetNormalsInterpolation(UsdGeom.Tokens.faceVarying)
     mesh.CreateDisplayColorAttr(Vt.Vec3fArray([Gf.Vec3f(*color)]))
     # 주의: PointInstancer prototype 은 invisible 로 두면 안 됨.
@@ -211,7 +212,7 @@ def make_basis_curves(stage, path, polylines, width=0.25,
     bc.CreateCurveVertexCountsAttr(Vt.IntArray(counts))
     bc.CreatePointsAttr(Vt.Vec3fArray(pts))
     # 폭: prim 전체 단일값 (constant)
-    wattr = bc.CreateWidthsAttr(Vt.FloatArray([width]))
+    bc.CreateWidthsAttr(Vt.FloatArray([width]))
     bc.SetWidthsInterpolation(UsdGeom.Tokens.constant)
     bc.CreateDisplayColorAttr(Vt.Vec3fArray([Gf.Vec3f(*color)]))
     return bc
