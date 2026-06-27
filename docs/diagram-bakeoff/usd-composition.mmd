@@ -1,0 +1,13 @@
+%% bake-off B: USD 레이어 합성 / LIVRPS (계층·비파괴 오버라이드 — draw.io 유리 예상 케이스)
+flowchart TD
+  subgraph composed["out/composed.usda (root layer)"]
+    SUB["subLayers = [ line_cut.usda, base.usda ]<br/>(앞쪽이 더 강함)"]
+  end
+  SUB -->|strong| LC["line_cut.usda<br/>over /World/Rails<br/>invisibleIds = [3, 7, 12, ...]"]
+  SUB -->|weak| BASE["base.usda<br/>def /World/Rails<br/>raw 2줄 전부 (모든 세그먼트)"]
+  LC -.오버라이드 승.-> R
+  BASE -.베이스 제공.-> R
+  R["합성 결과 스테이지<br/>/World/Rails<br/>= raw − invisibleIds"]
+  note["인덱스 정합: base/line_cut 모두<br/>geometry.dual_rail_segments_tagged 공유 → 1:1"]:::n
+  R --- note
+  classDef n fill:#fff8e1,stroke:#e0b400,color:#5a4a00;

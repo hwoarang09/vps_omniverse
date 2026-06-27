@@ -1,0 +1,53 @@
+<mxfile host="diagram-agent" type="device">
+  <diagram name="converter-pipeline" id="conv-pipe">
+    <mxGraphModel dx="1400" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="600" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="grp" value="빌드타임 (순수 usd-core / pxr)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;verticalAlign=top;fontStyle=2;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="180" y="80" width="780" height="320" as="geometry" />
+        </mxCell>
+        <mxCell id="in" value="input/fab_map/*.map" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="40" y="200" width="120" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="mapio" value="mapio.py&#10;맵 파싱" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="200" y="205" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="geo" value="geometry.py&#10;기하·hide 계산&#10;dual_rail_segments_tagged" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="360" y="200" width="160" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ub" value="usd_build.py&#10;USD prim 생성" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="560" y="205" width="130" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="bb" value="build_base.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="740" y="120" width="140" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="bl" value="build_line_cut.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="740" y="300" width="140" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="base" value="out/base.usda" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="105" width="120" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="lc" value="out/line_cut.usda" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="290" width="120" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="comp" value="composed.usda&#10;subLayers = [line_cut, base]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="1230" y="195" width="170" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="view" value="usdview / Omniverse Kit" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="1490" y="200" width="130" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="in" target="mapio"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="mapio" target="geo"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="geo" target="ub"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="ub" target="bb"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="ub" target="bl"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e6" value="raw 2줄 전부" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="bb" target="base"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e7" value="invisibleIds 오버라이드" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="bl" target="lc"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="base" target="comp"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="lc" target="comp"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="comp" target="view"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

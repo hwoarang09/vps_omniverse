@@ -32,7 +32,8 @@ cd converter
 
 | 에이전트 | 언제 | 하는 일 |
 |---|---|---|
-| **doc-agent** | "문서 만들어줘 / 문서화" | 개발 내용을 `docs/HTML_TEMPLATE/template.html` 기반 HTML 문서로 생성·갱신(`docs/html/`). 번호 접이식 목차+검색+버전. |
+| **doc-agent** | "문서 만들어줘 / 문서화" | 개발 내용을 `docs/HTML_TEMPLATE/template.html` 기반 HTML 문서로 생성·갱신(`docs/html/`). 번호 접이식 목차+검색+버전. 다이어그램은 diagram-agent의 SVG를 인라인 삽입(직접 안 그림). |
+| **diagram-agent** | "다이어그램/흐름도/관계도 그려줘" | 흐름·관계·계층·시퀀스 다이어그램을 **draw.io(.drawio) 작성 → SVG export → 문서 인라인**. export까지 직접 수행·PNG 육안 검수. |
 | **dev-agent** | "구현 / 수정 / 버그" | converter·exts 일반 개발. 변경 후 실제 실행·USD 수치 검증까지. |
 | **code-quality-agent** | "린트 / 품질 / 정리" | 파이썬 품질 점검(ruff 중심, 선택 mypy/vulture). 설정 없으면 ruff 부트스트랩. sonar/knip은 JS용이라 안 씀. |
 

@@ -1,0 +1,17 @@
+%% bake-off A: converter 빌드타임 파이프라인 (선형 흐름 — Mermaid 강점 케이스)
+flowchart LR
+  IN[(input/fab_map/*.map)] --> M[mapio.py<br/>맵 파싱]
+  M --> G[geometry.py<br/>기하·hide 계산<br/>dual_rail_segments_tagged]
+  G --> U[usd_build.py<br/>USD prim 생성]
+  subgraph build["빌드타임 (순수 usd-core / pxr)"]
+    M
+    G
+    U
+    U --> B[build_base.py]
+    U --> L[build_line_cut.py]
+  end
+  B -->|raw 2줄 전부| BASE[(out/base.usda)]
+  L -->|invisibleIds 오버라이드| LC[(out/line_cut.usda)]
+  BASE --> C[composed.usda<br/>subLayers = line_cut, base]
+  LC --> C
+  C --> V[usdview / Omniverse Kit]
