@@ -16,10 +16,10 @@ VPS(웹) 아키텍처 대응:
 """
 from __future__ import annotations
 import json
-import math
 import threading
 import time
 
+import numpy as np
 import omni.ext
 import omni.usd
 import omni.kit.app
@@ -73,12 +73,6 @@ JOB_STATE_COLORS = [
 ]
 NUM_JOB_STATES = len(JOB_STATE_COLORS)
 DEFAULT_JOB_STATE = 1  # 상태정보 없는(구버전 payload) 차량 = IDLE(흰색)
-
-
-def _lerp_angle(a: float, b: float, t: float) -> float:
-    """각도(도) 최단경로 보간 — 170°→-170° 같은 wrap 에서 한 바퀴 안 돌게."""
-    d = (b - a + 180.0) % 360.0 - 180.0
-    return a + d * t
 
 
 class VpsLiveVizExtension(omni.ext.IExt):
@@ -262,43 +256,6 @@ class VpsLiveVizExtension(omni.ext.IExt):
             self._last_msg_t = t
             self._last_msg_wall = now
 
-    @staticmethod
-    def _sample_at(samples, rt):
-        """시간순 samples [(t,x,y,rot,spd),...] 에서 sim-time rt 의 (x,y,rot).
-        범위 밖이면 양끝 값 유지(정지/데이터없음).
-        안이면 두 샘플의 '속도'까지 존중하는 cubic Hermite 보간 → 가감속 부드러움.
-          - 정지 샘플 spd=0 → 마지막 구간 속도 0으로 수렴 = 부드러운 감속 정지
-          - 출발도 0→spd 로 부드러운 가속
-        속도벡터 = spd · (cos rot, sin rot). 위치 trajectory 와 일치하면 overshoot 없음."""
-        if rt <= samples[0][0]:
-            s = samples[0]
-            return s[1], s[2], s[3]
-        if rt >= samples[-1][0]:
-            s = samples[-1]
-            return s[1], s[2], s[3]
-        for k in range(len(samples) - 1):
-            a, b = samples[k], samples[k + 1]
-            if not (a[0] <= rt <= b[0]):
-                continue
-            span = b[0] - a[0]
-            if span <= 0:
-                return b[1], b[2], b[3]
-            s = (rt - a[0]) / span          # 0..1
-            dt = span / 1000.0              # 초 (속도 m/s · dt = 위치단위)
-            ar, br = math.radians(a[3]), math.radians(b[3])
-            v0x, v0y = a[4] * math.cos(ar), a[4] * math.sin(ar)
-            v1x, v1y = b[4] * math.cos(br), b[4] * math.sin(br)
-            s2, s3 = s * s, s * s * s
-            h00 = 2 * s3 - 3 * s2 + 1
-            h10 = s3 - 2 * s2 + s
-            h01 = -2 * s3 + 3 * s2
-            h11 = s3 - s2
-            x = h00 * a[1] + h10 * dt * v0x + h01 * b[1] + h11 * dt * v1x
-            y = h00 * a[2] + h10 * dt * v0y + h01 * b[2] + h11 * dt * v1y
-            return x, y, _lerp_angle(a[3], b[3], s)
-        s = samples[-1]
-        return s[1], s[2], s[3]
-
     # --- 메인 스레드: 렌더지연 보간하여 USD flush (60fps) ----------------
     def _on_update(self, _e):
         now_wall = time.monotonic()
@@ -336,21 +293,71 @@ class VpsLiveVizExtension(omni.ext.IExt):
         rt = self._render_t
 
         ids = sorted(buf.keys())
-        pts = []
-        quats = []
-        proto_indices = []
-        for i in ids:
-            x, y, rot = self._sample_at(buf[i], rt)
-            pts.append(Gf.Vec3f(x, y, VEHICLE_Z))
-            q = Gf.Rotation(Gf.Vec3d(0, 0, 1), rot).GetQuat()  # Z축 회전 (진행방향)
-            im = q.GetImaginary()
-            quats.append(Gf.Quath(q.GetReal(), im[0], im[1], im[2]))
-            # protoIndex = JobState 값 → 해당 색 프로토타입. 범위 밖이면 IDLE(흰색).
-            j = job.get(i, DEFAULT_JOB_STATE)
-            proto_indices.append(j if 0 <= j < NUM_JOB_STATES else DEFAULT_JOB_STATE)
-        self._instancer.CreatePositionsAttr().Set(Vt.Vec3fArray(pts))
-        self._instancer.CreateOrientationsAttr().Set(Vt.QuathArray(quats))
-        self._instancer.CreateProtoIndicesAttr().Set(Vt.IntArray(proto_indices))
+        n = len(ids)
+        # === 차량별 rt 브래킷(왼쪽 a / 오른쪽 b) 샘플을 numpy 배열로 수집 ===
+        # 각 차량 samples 는 시간순 (t,x,y,rot,spd). rt 를 감싸는 두 샘플을 고른다.
+        #   - 범위 밖이면 a==b (양끝값 유지 = 정지/데이터없음)
+        #   - 차량마다 타임스탬프가 달라 '브래킷 탐색'만 차량별(이진탐색), 보간 수식은 일괄.
+        at = np.empty(n); ax = np.empty(n); ay = np.empty(n); arot = np.empty(n); aspd = np.empty(n)
+        bt = np.empty(n); bx = np.empty(n); by = np.empty(n); brot = np.empty(n); bspd = np.empty(n)
+        for k, vid in enumerate(ids):
+            s = buf[vid]
+            if rt <= s[0][0]:
+                a = b = s[0]
+            elif rt >= s[-1][0]:
+                a = b = s[-1]
+            else:  # 이진탐색: s[lo][0] <= rt < s[hi][0]
+                lo, hi = 0, len(s) - 1
+                while lo + 1 < hi:
+                    mid = (lo + hi) // 2
+                    if s[mid][0] <= rt:
+                        lo = mid
+                    else:
+                        hi = mid
+                a, b = s[lo], s[hi]
+            at[k], ax[k], ay[k], arot[k], aspd[k] = a
+            bt[k], bx[k], by[k], brot[k], bspd[k] = b
+
+        # === cubic Hermite 보간 (전 차량 일괄) ===
+        # 두 샘플의 '속도'까지 존중 → 가감속 부드러움(정지 spd=0 이면 부드러운 감속 정지).
+        # 속도벡터 = spd·(cos rot, sin rot), 위치 trajectory 와 일치하면 overshoot 없음.
+        # span==0(범위 밖, a==b)이면 dt=0·sp=0 → x=ax(=bx) 로 자연히 끝값 유지.
+        span = bt - at
+        denom = np.where(span > 0.0, span, 1.0)
+        sp = np.clip((rt - at) / denom, 0.0, 1.0)        # 0..1
+        dt = span / 1000.0                               # 초 (속도 m/s · dt = 위치단위)
+        a_rad = np.radians(arot); b_rad = np.radians(brot)
+        v0x = aspd * np.cos(a_rad); v0y = aspd * np.sin(a_rad)
+        v1x = bspd * np.cos(b_rad); v1y = bspd * np.sin(b_rad)
+        s2 = sp * sp; s3 = s2 * sp
+        h00 = 2 * s3 - 3 * s2 + 1
+        h10 = s3 - 2 * s2 + sp
+        h01 = -2 * s3 + 3 * s2
+        h11 = s3 - s2
+        xs = h00 * ax + h10 * dt * v0x + h01 * bx + h11 * dt * v1x
+        ys = h00 * ay + h10 * dt * v0y + h01 * by + h11 * dt * v1y
+        # 회전: 각도(도) 최단경로 보간 (170°→-170° wrap 에서 한 바퀴 안 돌게)
+        drot = ((brot - arot + 180.0) % 360.0) - 180.0
+        rots = arot + drot * sp
+
+        # === USD attribute 로 일괄 flush (numpy → Vt, 차량당 Gf 객체 생성 없음) ===
+        pts = np.empty((n, 3), dtype=np.float32)
+        pts[:, 0] = xs; pts[:, 1] = ys; pts[:, 2] = VEHICLE_Z
+        # protoIndex = JobState 값(범위 밖이면 IDLE). dict 조회라 이 부분만 차량별.
+        proto = np.fromiter(
+            (job.get(i, DEFAULT_JOB_STATE) for i in ids), dtype=np.int32, count=n
+        )
+        np.putmask(proto, (proto < 0) | (proto >= NUM_JOB_STATES), DEFAULT_JOB_STATE)
+        # Z축 회전 쿼터니언: (w=cos(θ/2), 0, 0, z=sin(θ/2)), θ 는 도→라디안.
+        # 삼각함수는 일괄, Gf.Quath 생성만 남김 (메모리 레이아웃 안전한 명시 생성자).
+        half = np.radians(rots) * 0.5
+        qw = np.cos(half); qz = np.sin(half)
+        quats = Vt.QuathArray([Gf.Quath(float(w), 0.0, 0.0, float(z))
+                               for w, z in zip(qw, qz)])
+
+        self._instancer.CreatePositionsAttr().Set(Vt.Vec3fArray.FromNumpy(pts))
+        self._instancer.CreateOrientationsAttr().Set(quats)
+        self._instancer.CreateProtoIndicesAttr().Set(Vt.IntArray.FromNumpy(proto))
 
         # 버퍼 트림 — rt 보다 충분히 과거 샘플 제거(왼쪽 앵커 1개는 보존)
         cutoff = rt - 2.0 * RENDER_DELAY_MS
