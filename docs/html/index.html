@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<!-- vps_omniverse 문서 허브 (자급형 단일 파일 — 외부 의존성 0). template.html 기반. -->
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>vps_omniverse 문서 — Docs</title>
+<style>
+:root{
+  --bg-void:#080b12; --bg-deep:#0c1019; --bg-surface:#111722; --bg-elevated:#161e2e;
+  --bg-card:#131a28; --bg-code:#0a0f18; --border:#1e2940; --border-subtle:#172035;
+  --text:#b8c4d8; --text-secondary:#7889a4; --text-muted:#4d5f7a;
+  --text-heading:#e2e8f4; --text-bright:#f0f4ff;
+  --cyan:#4ed2cd; --cyan-dim:rgba(78,210,205,.08); --cyan-glow:rgba(78,210,205,.25);
+  --orange:#e8a040; --purple:#9577f0; --green:#3dd68c; --red:#e85454;
+  --sidebar-w:300px; --content-max:880px; --radius:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  font-family:'Outfit','Noto Sans KR',system-ui,sans-serif;
+  background:var(--bg-void); color:var(--text); line-height:1.7;
+  background-image:radial-gradient(circle at 1px 1px, rgba(78,210,205,.04) 1px, transparent 0);
+  background-size:32px 32px;
+}
+.layout{display:flex; min-height:100vh}
+.sidebar{
+  width:var(--sidebar-w); flex-shrink:0; position:sticky; top:0; height:100vh;
+  overflow-y:auto; background:var(--bg-deep); border-right:1px solid var(--border); padding:20px 0;
+}
+.sidebar-head{padding:0 20px 16px; border-bottom:1px solid var(--border-subtle); margin-bottom:12px}
+.doc-title{font-size:18px; font-weight:700; color:var(--text-bright); display:block}
+.doc-sub{font-size:11px; color:var(--text-muted); display:block; margin-top:2px}
+.ver-row{display:flex; align-items:center; gap:8px; margin-top:10px}
+.ver-badge{font-size:11px; font-weight:600; color:var(--cyan); background:var(--cyan-dim);
+  border:1px solid var(--cyan-glow); border-radius:20px; padding:2px 10px}
+.search-wrap{padding:12px 16px}
+#search{width:100%; background:var(--bg-surface); border:1px solid var(--border);
+  border-radius:8px; padding:8px 12px; color:var(--text); font-size:13px; font-family:inherit}
+#search:focus{outline:none; border-color:var(--cyan); box-shadow:0 0 0 2px var(--cyan-dim)}
+#search::placeholder{color:var(--text-muted)}
+#toc{padding:4px 8px 20px}
+.toc-item{display:flex; align-items:center; border-radius:6px}
+.toc-item a{flex:1; text-decoration:none; color:var(--text-secondary); font-size:13px;
+  padding:5px 8px; border-radius:6px; display:block; transition:.12s;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.toc-item a:hover{color:var(--text-bright); background:var(--bg-surface)}
+.toc-item a.active{color:var(--cyan); background:var(--cyan-dim); font-weight:600}
+.toc-num{color:var(--text-muted); font-variant-numeric:tabular-nums; margin-right:6px}
+.toc-item a.active .toc-num{color:var(--cyan)}
+.lvl-2 a{padding-left:24px; font-size:12.5px}
+.lvl-3 a{padding-left:40px; font-size:12px; color:var(--text-muted)}
+.toc-toggle{width:18px; height:24px; flex-shrink:0; cursor:pointer; color:var(--text-muted);
+  display:flex; align-items:center; justify-content:center; font-size:10px; user-select:none; transition:transform .15s}
+.toc-toggle.collapsed{transform:rotate(-90deg)}
+.toc-toggle.leaf{visibility:hidden}
+.toc-hidden{display:none}
+.main{flex:1; padding:48px 56px; max-width:calc(var(--content-max) + 112px); width:100%}
+h1{font-size:30px; color:var(--text-bright); font-weight:700; margin-bottom:6px}
+h1 .subtitle{display:block; font-size:14px; color:var(--text-muted); font-weight:400; margin-top:4px}
+h2{font-size:22px; color:var(--text-heading); margin:40px 0 14px; padding-top:8px;
+   border-top:1px solid var(--border-subtle); font-weight:650}
+h3{font-size:17px; color:var(--cyan); margin:26px 0 10px; font-weight:600}
+h2 .hnum,h3 .hnum{color:var(--text-muted); font-weight:500; margin-right:10px; font-variant-numeric:tabular-nums}
+p{margin:10px 0}
+.note{color:var(--text-muted); font-size:13.5px}
+a{color:var(--cyan)}
+code{background:var(--bg-code); color:#6eeae5; padding:1px 6px; border-radius:5px;
+     font-family:'JetBrains Mono','Fira Code',monospace; font-size:.88em}
+pre{background:var(--bg-code); border:1px solid var(--border); border-radius:var(--radius);
+    padding:16px; overflow-x:auto; margin:14px 0}
+pre code{background:none; padding:0; color:var(--text); font-size:13px; line-height:1.55}
+table{width:100%; border-collapse:collapse; margin:14px 0; font-size:13.5px}
+th,td{border:1px solid var(--border); padding:8px 12px; text-align:left; vertical-align:top}
+th{background:var(--bg-elevated); color:var(--text-heading); font-weight:600}
+td{background:var(--bg-surface)}
+.card{background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:16px 20px; margin:14px 0}
+.highlight{color:var(--cyan); font-weight:600}
+.badge{display:inline-block; font-size:11px; font-weight:600; padding:2px 9px; border-radius:20px}
+.badge-green{color:var(--green); background:rgba(61,214,140,.1); border:1px solid rgba(61,214,140,.25)}
+.badge-cyan{color:var(--cyan); background:var(--cyan-dim); border:1px solid var(--cyan-glow)}
+.badge-orange{color:var(--orange); background:rgba(232,160,64,.1); border:1px solid rgba(232,160,64,.25)}
+.badge-purple{color:var(--purple); background:rgba(149,119,240,.1); border:1px solid rgba(149,119,240,.25)}
+hr{border:none; border-top:1px solid var(--border); margin:32px 0}
+.search-hide{display:none !important}
+.docnav{display:flex; flex-wrap:wrap; gap:8px; margin:0 0 8px}
+.docnav a{font-size:12.5px; text-decoration:none; color:var(--text-secondary);
+  background:var(--bg-surface); border:1px solid var(--border); border-radius:20px; padding:4px 12px; transition:.12s}
+.docnav a:hover{color:var(--text-bright); border-color:var(--cyan-glow)}
+.docnav a.current{color:var(--cyan); background:var(--cyan-dim); border-color:var(--cyan-glow); font-weight:600}
+.doc-card{background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius);
+  padding:14px 18px; margin:10px 0; transition:.12s; display:block; text-decoration:none}
+.doc-card:hover{border-color:var(--cyan-glow); background:var(--bg-elevated)}
+.doc-card .dc-title{font-size:15.5px; font-weight:600; color:var(--text-bright)}
+.doc-card .dc-desc{font-size:13px; color:var(--text-secondary); margin-top:4px}
+@media(max-width:760px){.sidebar{position:fixed; left:-100%; z-index:50; transition:left .2s}.sidebar.open{left:0}.main{padding:24px 20px}}
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <span class="doc-title">vps_omniverse 문서</span>
+      <span class="doc-sub">OpenUSD · AMHS 시각화</span>
+      <div class="ver-row">
+        <span class="ver-badge" data-version>v0.1.0</span>
+        <span class="doc-sub" data-date>2026-06-28</span>
+      </div>
+    </div>
+    <div class="search-wrap">
+      <input id="search" type="text" placeholder="🔍 검색 (제목·본문)…" autocomplete="off">
+    </div>
+    <nav id="toc"><!-- JS 자동 생성 --></nav>
+  </aside>
+
+  <main class="main" id="content">
+    <nav class="docnav">
+      <a href="index.html" class="current">index</a>
+      <a href="overview.html">overview</a>
+      <a href="converter.html">converter</a>
+      <a href="usd-composition.html">usd-composition</a>
+      <a href="runtime.html">runtime</a>
+      <a href="usd-learning.html">usd-learning</a>
+    </nav>
+
+    <h1>vps_omniverse 문서<span class="subtitle">AMHS 맵 → OpenUSD → Omniverse 시각화 · OpenUSD/NCP-OUSD 학습 겸</span></h1>
+
+    <h2>소개</h2>
+    <p><span class="highlight">vps_omniverse</span> 는 VPS(AMHS 시뮬레이터)의 맵을
+       <span class="highlight">OpenUSD</span> 로 변환해 NVIDIA Omniverse(Kit)에서 시각화·실시간 렌더하는 프로젝트다.
+       빌드타임 <code>converter/</code>(순수 usd-core, Omniverse 불필요)와 런타임 <code>exts/</code>(Kit 확장)로 분리되어 있다.</p>
+    <p>핵심은 레일 겹침 정리를 <span class="highlight">USD 레이어 합성(LIVRPS)</span> 으로 비파괴 처리하는 것 —
+       base 엔 raw 2줄 전부, <code>line_cut</code> 이 <code>invisibleIds</code> 로 오버라이드한다.</p>
+
+    <h2>문서</h2>
+    <a class="doc-card" href="overview.html">
+      <div class="dc-title">overview <span class="badge badge-cyan">입문</span></div>
+      <div class="dc-desc">프로젝트 전반 — 목적, converter↔exts 분리 철학, 폴더 구조, 빌드/실행. 데이터 흐름(빌드타임 → USD 레이어 → 런타임) 3분할 다이어그램.</div>
+    </a>
+    <a class="doc-card" href="converter.html">
+      <div class="dc-title">converter <span class="badge badge-green">빌드타임</span></div>
+      <div class="dc-desc">맵 → USD 변환 파이프라인(mapio → geometry → usd_build → base/line_cut)과 hide·라인끊기 케이스(직선/CURVE_90/180/CSC/S, 실제 좌표 plot).</div>
+    </a>
+    <a class="doc-card" href="usd-composition.html">
+      <div class="dc-title">usd-composition <span class="badge badge-purple">핵심</span></div>
+      <div class="dc-desc">USD 레이어 합성(LIVRPS) — subLayers=[line_cut, base], <code>over invisibleIds</code> 비파괴 오버라이드, base/line_cut 인덱스 1:1 정합.</div>
+    </a>
+    <a class="doc-card" href="runtime.html">
+      <div class="dc-title">runtime <span class="badge badge-orange">런타임</span></div>
+      <div class="dc-desc">Kit 확장(exts) — MQTT 실시간 차량(PointInstancer), JobState 색(차량 형상), railColor variant 토글, Kit 3층 구조와 실행.</div>
+    </a>
+    <a class="doc-card" href="usd-learning.html">
+      <div class="dc-title">usd-learning <span class="badge badge-cyan">학습</span></div>
+      <div class="dc-desc">USD 학습 노트 / NCP-OUSD 대비 — Layer·Composition·Prim·PointInstancer·VariantSet 개념을 이 프로젝트 사용처와 연결.</div>
+    </a>
+
+    <h2>빠른 시작</h2>
+    <p>빌드타임 변환(순수 usd-core). <code>converter/</code> 안에서 실행:</p>
+    <pre><code>cd converter
+python build_base.py     ../input/fab_map ../out/base.usda
+python build_line_cut.py ../input/fab_map ../out
+
+# 보기 (합성 결과): usdview ../out/composed.usda
+# raw 만 보기:        usdview ../out/base.usda</code></pre>
+    <p class="note">런타임(실시간 차량/레일색)은 Omniverse Kit 앱에서 <code>exts/</code> 를 확장 경로에 추가해 사용한다. 자세한 건 <a href="runtime.html">runtime</a> 문서.</p>
+
+    <h2>변경 이력</h2>
+    <table>
+      <tr><th>버전</th><th>날짜</th><th>내용</th></tr>
+      <tr><td>v0.1.0</td><td>2026-06-28</td><td>문서 허브 최초 작성 — 5개 문서 링크</td></tr>
+    </table>
+
+    <hr>
+    <p class="note" style="text-align:center">Generated by Claude — vps_omniverse docs</p>
+  </main>
+</div>
+
+<script>
+(function(){
+  const content = document.getElementById('content');
+  const toc = document.getElementById('toc');
+  const heads = [...content.querySelectorAll('h2,h3,h4')];
+  const c = [0,0,0];
+  const entries = [];
+  heads.forEach(h=>{
+    const lvl = +h.tagName[1];
+    if(lvl===2){c[0]++; c[1]=0; c[2]=0;} else if(lvl===3){c[1]++; c[2]=0;} else {c[2]++;}
+    const num = lvl===2?`${c[0]}`: lvl===3?`${c[0]}.${c[1]}`:`${c[0]}.${c[1]}.${c[2]}`;
+    const id = 'sec-'+num.replace(/\./g,'-');
+    h.id = id;
+    h.insertAdjacentHTML('afterbegin', `<span class="hnum">${num}</span>`);
+    entries.push({el:h, level:lvl, num, id, text:h.textContent});
+  });
+  entries.forEach((e,i)=>{
+    const row = document.createElement('div');
+    row.className = `toc-item lvl-${e.level-1}`;
+    row.dataset.id = e.id; row.dataset.level = e.level;
+    const hasChild = entries[i+1] && entries[i+1].level > e.level;
+    row.innerHTML = `<span class="toc-toggle ${hasChild?'':'leaf'}">▾</span>`+
+      `<a href="#${e.id}"><span class="toc-num">${e.num}</span>${e.text}</a>`;
+    toc.appendChild(row);
+  });
+  toc.querySelectorAll('.toc-toggle:not(.leaf)').forEach(tg=>{
+    tg.addEventListener('click', ()=>{
+      const row = tg.closest('.toc-item'); const lvl = +row.dataset.level;
+      tg.classList.toggle('collapsed'); const hide = tg.classList.contains('collapsed');
+      let n = row.nextElementSibling;
+      while(n && +n.dataset.level > lvl){ n.classList.toggle('toc-hidden', hide);
+        if(hide){ const t=n.querySelector('.toc-toggle'); if(t) t.classList.add('collapsed'); } n = n.nextElementSibling; }
+    });
+  });
+  const rows = [...toc.querySelectorAll('.toc-item')];
+  const byId = Object.fromEntries(rows.map(r=>[r.dataset.id, r.querySelector('a')]));
+  const obs = new IntersectionObserver(es=>{
+    es.forEach(en=>{ if(en.isIntersecting){
+      rows.forEach(r=>r.querySelector('a').classList.remove('active'));
+      const a = byId[en.target.id]; if(a) a.classList.add('active'); } });
+  }, {rootMargin:'0px 0px -75% 0px', threshold:0});
+  entries.forEach(e=>obs.observe(e.el));
+  const search = document.getElementById('search');
+  const blocks = entries.map((e)=>{
+    const nodes=[e.el]; let n=e.el.nextElementSibling;
+    while(n && !/^H[234]$/.test(n.tagName)){ nodes.push(n); n=n.nextElementSibling; }
+    return {entry:e, nodes};
+  });
+  search.addEventListener('input', ()=>{
+    const q = search.value.trim().toLowerCase();
+    if(!q){ rows.forEach(r=>r.classList.remove('search-hide'));
+            blocks.forEach(b=>b.nodes.forEach(nd=>nd.classList.remove('search-hide'))); return; }
+    blocks.forEach(b=>{
+      const hit = b.nodes.some(nd=>nd.textContent.toLowerCase().includes(q));
+      b.nodes.forEach(nd=>nd.classList.toggle('search-hide', !hit));
+      const r = rows.find(r=>r.dataset.id===b.entry.id);
+      if(r) r.classList.toggle('search-hide', !hit);
+    });
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,58 @@
+<mxfile host="diagram-agent" type="device">
+  <diagram name="overview-buildtime" id="overview-buildtime">
+    <mxGraphModel dx="1200" dy="700" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1180" pageHeight="420" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="title" value="빌드타임 컨버터 — 맵을 USD 두 레이어로 (순수 usd-core, Omniverse 불필요)" style="text;html=1;fontSize=15;fontStyle=1;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="30" y="14" width="900" height="26" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="in" value="input/fab_map/*.map&#10;nodes · edges · loops · station" style="rounded=8;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="30" y="210" width="160" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="conv" value="converter/  (빌드타임)" style="rounded=8;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;verticalAlign=top;fontStyle=2;spacingTop=6;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="230" y="100" width="685" height="262" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="mapio" value="mapio.py&#10;맵 파싱" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="250" y="210" width="120" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="geom" value="geometry.py&#10;기하 · hide 계산&#10;dual_rail_segments_tagged" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="390" y="210" width="170" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="ubuild" value="usd_build.py&#10;USD prim 생성" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="580" y="210" width="120" height="60" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="bbase" value="build_base.py&#10;raw 2줄 전부" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="720" y="150" width="170" height="54" as="geometry"/>
+        </mxCell>
+        <mxCell id="bcut" value="build_line_cut.py&#10;invisibleIds 오버라이드" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="720" y="280" width="170" height="54" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="obase" value="out/base.usda&#10;raw 레일 2줄" style="rounded=8;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="960" y="150" width="170" height="54" as="geometry"/>
+        </mxCell>
+        <mxCell id="ocut" value="out/line_cut.usda&#10;over invisibleIds" style="rounded=8;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="960" y="280" width="170" height="54" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="in" target="mapio"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="mapio" target="geom"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="geom" target="ubuild"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="ubuild" target="bbase"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="ubuild" target="bcut"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="bbase" target="obase"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="bcut" target="ocut"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="note" value="base / line_cut 인덱스는 geometry.dual_rail_segments_tagged 공유로 1:1 정렬.  두 레이어는 독립 출력 — 합성(composed.usda subLayers=[line_cut, base])은 overview-usd-layers 참고." style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontColor=#555555;" vertex="1" parent="1">
+          <mxGeometry x="30" y="378" width="1100" height="24" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

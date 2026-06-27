@@ -1,0 +1,44 @@
+<mxfile host="diagram-agent" type="device">
+  <diagram name="usd-layer-strength" id="usd-layer-strength">
+    <mxGraphModel dx="1400" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1180" pageHeight="640" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="USD 레이어 합성 강도 (학습용) — subLayers 는 앞이 강하다, over 가 def 를 오버라이드" style="text;html=1;fontSize=14;fontStyle=1;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="40" y="16" width="1000" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="root" value="root layer&#10;subLayers = [ strong.usda,  …,  weak.usda ]&#10;(리스트 앞 = 강함)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="60" y="70" width="320" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="arrowbar" value="강&#10;↓&#10;약" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontStyle=1;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="60" y="210" width="60" height="260" as="geometry" />
+        </mxCell>
+
+        <mxCell id="strong" value="strong.usda  (앞 → 강함)&#10;&#10;over /World/Obj&#10;{&#10;    displayColor = 빨강&#10;}" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="160" y="210" width="320" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="weak" value="weak.usda  (뒤 → 약함)&#10;&#10;def /World/Obj&#10;{&#10;    displayColor = 초록&#10;    radius = 2&#10;}" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="160" y="360" width="320" height="110" as="geometry" />
+        </mxCell>
+
+        <mxCell id="result" value="합성 결과 스테이지&#10;/World/Obj&#10;&#10;displayColor = 빨강&#10;  (strong 의 over 가 이김)&#10;radius = 2&#10;  (weak 만 정의 → 그대로 통과)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=12;verticalAlign=top;spacingTop=8;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="640" y="270" width="300" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="livrps" value="LIVRPS 우선순위 (강 → 약):  Local  &gt;  Inherits  &gt;  VariantSets  &gt;  References  &gt;  Payloads  &gt;  Specializes.&#10;subLayers 순서는 그 중 Local(직접 오피니언) 안에서의 강도다 — 앞 레이어의 오피니언이 뒤를 이긴다." style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;spacingLeft=10;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="60" y="500" width="1080" height="54" as="geometry" />
+        </mxCell>
+        <mxCell id="proj" value="이 프로젝트 적용:  composed.usda 의 subLayers = [ line_cut(강), base(약) ].  line_cut 의 over invisibleIds 가 base 의 raw 2줄을 비파괴로 가린다." style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;align=left;spacingLeft=10;verticalAlign=middle;dashed=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="566" width="1080" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e1" value="① 강" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#b85450;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="root" target="strong"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e2" value="② 약" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#6c8ebf;labelBackgroundColor=#ffffff;exitX=0.25;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.4;entryDx=0;entryDy=0;" edge="1" parent="1" source="root" target="weak"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="140" y="340" /></Array></mxGeometry></mxCell>
+        <mxCell id="e3" value="오버라이드 승" style="edgeStyle=orthogonalEdgeStyle;html=1;dashed=1;strokeColor=#d79b00;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="strong" target="result"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e4" value="정의 제공" style="edgeStyle=orthogonalEdgeStyle;html=1;dashed=1;strokeColor=#6c8ebf;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="weak" target="result"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

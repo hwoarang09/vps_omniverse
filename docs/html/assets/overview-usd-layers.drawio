@@ -1,0 +1,46 @@
+<mxfile host="diagram-agent" type="device">
+  <diagram name="overview-usd-layers" id="overview-usd-layers">
+    <mxGraphModel dx="1000" dy="700" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="900" pageHeight="400" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="title" value="USD 레이어 합성 — line_cut 이 base 의 raw 2줄을 비파괴 오버라이드" style="text;html=1;fontSize=15;fontStyle=1;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="30" y="14" width="820" height="26" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="stack" value="subLayers (위일수록 강함)" style="rounded=8;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;verticalAlign=top;fontStyle=2;spacingTop=6;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="80" width="430" height="220" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="cut" value="line_cut.usda&#10;over /World/Rails { invisibleIds }" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#3b82f6;strokeColor=#2a5fbf;fontColor=#ffffff;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="55" y="118" width="320" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="cutstrong" value="강 (상위)" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontStyle=1;fontColor=#2a5fbf;" vertex="1" parent="1">
+          <mxGeometry x="385" y="138" width="70" height="24" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="over" value="invisibleIds 로 raw 2줄 중 겹침을 숨김 (비파괴)" style="text;html=1;align=center;verticalAlign=middle;fontSize=11;fontColor=#555555;" vertex="1" parent="1">
+          <mxGeometry x="55" y="186" width="320" height="20" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="base" value="base.usda&#10;raw 레일 2줄 전부" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dbe7f6;strokeColor=#9bb7d4;fontColor=#333333;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="55" y="210" width="320" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="baseweak" value="약 (하위)" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontColor=#777777;" vertex="1" parent="1">
+          <mxGeometry x="385" y="230" width="70" height="24" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="composed" value="out/composed.usda&#10;subLayers = [ line_cut, base ]&#10;&#10;← 여는 건 이것" style="rounded=8;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="560" y="140" width="300" height="120" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="ec" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="stack" target="composed"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="note" value="강한 레이어(line_cut)의 over 가 약한 레이어(base)를 이긴다 (LIVRPS).  base / line_cut 인덱스는 geometry.dual_rail_segments_tagged 공유로 1:1." style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontColor=#555555;" vertex="1" parent="1">
+          <mxGeometry x="30" y="320" width="830" height="24" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
