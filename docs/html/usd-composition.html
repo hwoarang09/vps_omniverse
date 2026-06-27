@@ -143,7 +143,7 @@ hr{border:none; border-top:1px solid var(--border); margin:32px 0}
       <span class="doc-title">USD 레이어 합성</span>
       <span class="doc-sub">vps_omniverse · OpenUSD · LIVRPS</span>
       <div class="ver-row">
-        <span class="ver-badge" data-version>v0.1.0</span>
+        <span class="ver-badge" data-version>v0.1.1</span>
         <span class="doc-sub" data-date>2026-06-28</span>
       </div>
     </div>
@@ -284,7 +284,11 @@ over "World"
     <h2>LIVRPS 개념 (학습용)</h2>
     <p>USD 에서 한 prim 의 최종 값은 여러 출처(composition arc)를 정해진 <span class="highlight">강도
        순서</span>로 합성해 결정된다. 그 순서의 머리글자가 <code>LIVRPS</code> 다 — 위가 강하고
-       아래가 약하다.</p>
+       아래가 약하다. <strong>이 프로젝트의 레일 겹침 정리가 바로 그 한 사례다</strong>:
+       같은 <code>/World/Rails</code> 에 base 는 positions·protoIndices 를, line_cut 은
+       <code>invisibleIds</code> 를 각각 쓰는데, line_cut 이 더 강한 Local opinion 이라 그 세그먼트가
+       숨겨진다. 아래 표는 추상 설명 대신 <span class="highlight">"레일 겹침 정리에서 어떻게 쓰이나"</span>
+       열로 6개 arc 를 실제 케이스에 대응시킨다.</p>
 
     <h3>강도 순서</h3>
     <div class="card">
@@ -295,20 +299,30 @@ over "World"
       </figure>
     </div>
     <table>
-      <tr><th>약자</th><th>arc</th><th>한 줄 의미</th></tr>
+      <tr><th>약자</th><th>arc</th><th>한 줄 의미</th><th>레일 겹침 정리에서</th></tr>
       <tr><td><span class="badge badge-cyan">L</span></td><td>Local</td>
-          <td>이 레이어 스택에서 직접 쓴 opinion (subLayers 포함). <strong>가장 강함</strong>.</td></tr>
+          <td>이 레이어 스택에서 직접 쓴 opinion (subLayers 포함). <strong>가장 강함</strong>.</td>
+          <td><span class="badge badge-green">핵심</span> <code>subLayers=[line_cut, base]</code> —
+              line_cut 의 <code>invisibleIds</code> 가 base 를 이겨 겹침 세그먼트가 숨김. 이 한 줄로 정리 성립.</td></tr>
       <tr><td><span class="badge badge-purple">I</span></td><td>Inherits</td>
-          <td>클래스(class) 상속 — 공통 속성 묶음.</td></tr>
+          <td>클래스(class) 상속 — 공통 속성 묶음.</td>
+          <td>미사용</td></tr>
       <tr><td><span class="badge badge-orange">V</span></td><td>VariantSets</td>
-          <td>변형 선택(예: 이 프로젝트의 <code>railColor</code> realistic/debug).</td></tr>
+          <td>변형 선택.</td>
+          <td><span class="badge badge-green">부가</span> <code>railColor</code> realistic/debug 레일색 토글
+              (<code>build_base.py:99-107</code>) — 겹침 정리와는 별개 기능.</td></tr>
       <tr><td><span class="badge badge-green">R</span></td><td>References</td>
-          <td>다른 에셋/prim 참조.</td></tr>
+          <td>다른 에셋/prim 참조.</td>
+          <td>미사용</td></tr>
       <tr><td><span class="badge badge-green">P</span></td><td>Payloads</td>
-          <td>지연 로드(load-on-demand) 참조.</td></tr>
+          <td>지연 로드(load-on-demand) 참조.</td>
+          <td>미사용</td></tr>
       <tr><td><span class="badge badge-red">S</span></td><td>Specializes</td>
-          <td>기본값 성격 — <strong>가장 약함</strong>(다른 모든 게 못 덮으면 적용).</td></tr>
+          <td>기본값 성격 — <strong>가장 약함</strong>(다른 모든 게 못 덮으면 적용).</td>
+          <td>미사용</td></tr>
     </table>
+    <p class="note">즉 이 프로젝트가 실제로 쓰는 건 <strong>L(Local/subLayers)</strong> 하나(겹침 정리)
+       + 부가로 <strong>V(railColor)</strong> 뿐이다. I·R·P·S 는 개념만 알아두면 된다 — 레일 숨기기에는 안 쓰인다.</p>
 
     <h3>이 프로젝트가 쓰는 것 — Local(subLayers)</h3>
     <p>이 문서의 합성은 LIVRPS 의 맨 위 <span class="highlight">L(Local)</span> 한 종류만 쓴다.
@@ -354,6 +368,7 @@ usdview ../out/base.usda</code></pre>
     <table>
       <tr><th>버전</th><th>날짜</th><th>내용</th></tr>
       <tr><td>v0.1.0</td><td>2026-06-28</td><td>최초 작성 — USD 레이어 합성(LIVRPS) 정리: 문제/해법/검증/비파괴·1:1 정합/LIVRPS 개념/Three.js 대조. 다이어그램 2종 인라인.</td></tr>
+      <tr><td>v0.1.1</td><td>2026-06-28</td><td>LIVRPS(학습용) 섹션을 레일 겹침 정리 예제 중심으로 재서술 — 강도순서 표에 "레일 겹침 정리에서" 열 추가(L=핵심 invisibleIds, V=railColor, I·R·P·S=미사용). TOC 번호 중복 버그 수정(템플릿 공통).</td></tr>
     </table>
 
     <hr>
