@@ -17,7 +17,7 @@ contract (extension.py 와 일치):
 실행:
   python3 mock_vehicle_publisher.py                 # 기본 (rail 따라 8대)
   python3 mock_vehicle_publisher.py --count 20 --speed 10
-  python3 mock_vehicle_publisher.py --map ../input/y_short
+  python3 mock_vehicle_publisher.py --map ../input/fab_map
 
 사전 준비: pip install paho-mqtt
 """
@@ -41,7 +41,7 @@ sys.path.insert(0, _CONVERTER)
 import mapio      # noqa: E402
 import geometry   # noqa: E402
 
-DEFAULT_MAP = os.path.abspath(os.path.join(_HERE, "..", "input", "y_short"))
+DEFAULT_MAP = os.path.abspath(os.path.join(_HERE, "..", "input", "fab_map"))
 
 
 def _close(a, b, eps=1e-6):
@@ -109,7 +109,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--host", default="localhost")
     p.add_argument("--port", type=int, default=9883)
     p.add_argument("--topic", default="VPS/viz/fab_0/vehicles")
-    p.add_argument("--map", default=DEFAULT_MAP, help="맵 폴더 (nodes.cfg/edges.cfg)")
+    p.add_argument("--map", default=DEFAULT_MAP, help="맵 폴더 (nodes.map/edges.map)")
     p.add_argument("--count", type=int, default=8, help="차량 수")
     p.add_argument("--period", type=float, default=0.5, help="주기 publish 간격(s) — VPS 0.5s 모사")
     p.add_argument("--speed", type=float, default=6.0, help="차량 속도 (m/s)")
@@ -121,8 +121,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    nodes = mapio.parse_nodes(os.path.join(args.map, "nodes.cfg"))
-    edges = mapio.parse_edges(os.path.join(args.map, "edges.cfg"))
+    nodes = mapio.parse_nodes(os.path.join(args.map, "nodes.map"))
+    edges = mapio.parse_edges(os.path.join(args.map, "edges.map"))
     pts = build_route(nodes, edges)
     if len(pts) < 2:
         print(f"[mock] route 생성 실패 (pts={len(pts)}) — 맵 경로 확인: {args.map}")

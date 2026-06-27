@@ -35,8 +35,8 @@ def _n(v):
 
 
 def main(map_dir, out_path):
-    nodes = parse_nodes(f"{map_dir}/nodes.cfg")
-    edges = parse_edges(f"{map_dir}/edges.cfg")
+    nodes = parse_nodes(f"{map_dir}/nodes.map")
+    edges = parse_edges(f"{map_dir}/edges.map")
     stations = parse_stations(f"{map_dir}/station.map")
 
     devs, clamped = geo.compute_devices(stations, nodes, edges)
@@ -68,6 +68,6 @@ def main(map_dir, out_path):
 
 
 if __name__ == "__main__":
-    map_dir = sys.argv[1] if len(sys.argv) > 1 else "../input/y_short"
+    map_dir = sys.argv[1] if len(sys.argv) > 1 else "../input/fab_map"
     out_path = sys.argv[2] if len(sys.argv) > 2 else f"{map_dir}/station_body.map"
     main(map_dir, out_path)

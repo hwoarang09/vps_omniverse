@@ -6,8 +6,11 @@ __pycache__/
 venv/
 converter/.venv/
 
-# 생성물 (converter 가 input → out 으로 만듦. convert_map_to_usd.py 로 재생성 가능)
-out/
+# 생성물 (converter 가 input → out 으로 만듦. build_base.py + build_line_cut.py 로 재생성 가능)
+#   out/ '내용물'을 무시(out/*)해야 아래 negation(!)이 먹는다. out/ 통째 무시면 예외 불가.
+out/*
+# 단, composed.usda 는 손으로 쓴 정적 stitch(레이어 선언만) — 추적 유지
+!out/composed.usda
 
 # Omniverse / Kit
 *.log

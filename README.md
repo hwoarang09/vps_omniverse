@@ -21,8 +21,8 @@ vps_omniverse/
 │   ├─ geometry.py             레일 곡선 + 스테이션 (VPS 로직 포팅)
 │   ├─ usd_build.py            USD 스테이지/프림 헬퍼
 │   └─ 01_min_instancer.py     PointInstancer 최소 예제(학습용)
-├─ input/         자급용 입력 맵 (y_short)  ※ 원본은 vps/public/railConfig/
-├─ out/           결과물: y_short.usda + 렌더 PNG 4장
+├─ input/         자급용 입력 맵 (fab_map, 확장자 .map 통일)  ※ 원본은 vps/public/railConfig/
+├─ out/           결과물: base.usda + line_cut.usda + composed.usda + 렌더 PNG
 ├─ exts/          Phase B — Kit 확장 (python, 실시간 MQTT 렌더)
 │   └─ vps.live.viz/
 │       ├─ config/extension.toml
@@ -44,12 +44,18 @@ python -m venv .venv
 pip install -r requirements.txt     # usd-core==26.5
 
 cd converter
-python convert_map_to_usd.py ../input/y_short ../out/y_short.usda
+python build_base.py       ../input/fab_map ../out/base.usda   # raw 2줄 base
+python build_line_cut.py   ../input/fab_map ../out             # line_cut.usda + composed.usda
 ```
 
+**레이어 합성(LIVRPS) 데모:** `base.usda`(raw 2줄 전부) 위에 `line_cut.usda`가
+`invisibleIds`로 교차점 겹침을 비파괴 오버라이드 → `composed.usda`가 둘을 subLayer로 합성.
+`line_cut.usda`를 빼면 raw 2줄로 즉시 복귀.
+
 **결과 보기:**
-- 미리보기만: `out/render_top.png` 등 4장 열기.
-- 인터랙티브: `usdview out/y_short.usda` → Camera 메뉴 → `TopCam`.
+- 미리보기만: `out/render_top.png` 등 열기.
+- 인터랙티브: `usdview out/composed.usda` → Camera 메뉴 → `TopCam`.
+  - raw 2줄만 보려면: `usdview out/base.usda`
   - WSLg는 GL이 소프트웨어라 느림: `LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe usdview ...`
   - Windows 네이티브 usdview / Omniverse Composer 권장.
 

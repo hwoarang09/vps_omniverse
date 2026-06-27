@@ -3,8 +3,8 @@ VPS 맵 파일 파서 — VPS/src/store/system/cfgStore.ts 의 파싱 로직을 
 입력 파싱은 VPS 그대로, 출력만 나중에 USD 로 교체한다.
 
 파일:
-  nodes.cfg   : node_name,barcode,editor_x,editor_y,editor_z   (TMP_* 웨이포인트 포함)
-  edges.cfg   : edge_name,from_node,to_node,distance,vos_rail_type,bay_name,waypoints,radius,waiting_offset
+  nodes.map   : node_name,barcode,editor_x,editor_y,editor_z   (TMP_* 웨이포인트 포함)
+  edges.map   : edge_name,from_node,to_node,distance,vos_rail_type,bay_name,waypoints,radius,waiting_offset
   station.map : station_name,editor_x,editor_y,barcode_x,barcode_y,barcode_r,bay_name,station_type,nearest_edge,nearest_edge_distance
 """
 import csv
@@ -13,7 +13,7 @@ import json
 from dataclasses import dataclass, field
 
 
-# nodes.cfg 의 editor_z 누락 시 기본값 (renderConfig MARKER Z = 3.8)
+# nodes.map 의 editor_z 누락 시 기본값 (renderConfig MARKER Z = 3.8)
 DEFAULT_NODE_Z = 3.8
 
 
@@ -231,9 +231,9 @@ def parse_rail_hide(path):
 if __name__ == "__main__":
     import sys
     base = sys.argv[1] if len(sys.argv) > 1 else \
-        "/home/zunxin/vps/public/railConfig/y_short"
-    nodes = parse_nodes(f"{base}/nodes.cfg")
-    edges = parse_edges(f"{base}/edges.cfg")
+        "../input/fab_map"
+    nodes = parse_nodes(f"{base}/nodes.map")
+    edges = parse_edges(f"{base}/edges.map")
     stations = parse_stations(f"{base}/station.map")
     print(f"nodes   : {len(nodes)}  (TMP_*: {sum(1 for n in nodes if n.startswith('TMP_'))})")
     print(f"edges   : {len(edges)}")

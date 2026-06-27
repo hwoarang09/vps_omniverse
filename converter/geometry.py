@@ -2,7 +2,7 @@
 트랙 지오메트리 — VPS 의 points_calculator + EdgeRenderer 매트릭스 로직을 파이썬으로 번역.
 
 VPS 흐름 (출력만 USD 로 교체):
-  edges.cfg row
+  edges.map row
     -> EdgePointsCalculator.calculateRenderingPoints  (rail_type 라우팅)
        - LINEAR     : StraightPointsCalculator.calculate            -> [from, to]
        - CURVE_*    : SimpleCurveEdgePointsCalculator -> EdgePathGenerator.generate
@@ -487,7 +487,7 @@ def _arc_turn_sign(clean, a0, a1):
     return _turn_sign(sub) if len(sub) >= 3 else 1.0
 
 
-def compute_curve_hide(edges, nodes,
+def hide_curve_arc(edges, nodes,
                        types=("CURVE_CSC", "CURVE_90", "CURVE_180", "S_CURVE"),
                        arc_hide=RAIL_CSC_ARC_HIDE):
     """곡선 outer 레일 trim — **각 호(arc)마다 그 호가 '속한'(가까운) edge 끝**이
@@ -547,7 +547,7 @@ def _angle_deg(ax, ay, bx, by):
     return math.degrees(math.acos(abs(c)))
 
 
-def compute_straight_block_hide(edges, nodes, gauge=RAIL_GAUGE,
+def hide_curve_lead(edges, nodes, gauge=RAIL_GAUGE,
                                 angle_thr=RAIL_CROSS_ANGLE):
     """곡선 edge 의 **직선영역(lead-in/out)이 다른 통로를 '가로막는'** 부분 삭제.
     겹침(평행, 나란히)은 보존 — veh 가 나란히 가면 안 막으니까. 가로막음 =
@@ -582,7 +582,7 @@ def compute_straight_block_hide(edges, nodes, gauge=RAIL_GAUGE,
             segs = rl[k]
             hid = [False] * len(segs)
             for i, s in enumerate(segs):
-                if s[6]:                       # 직선영역만 (호는 compute_curve_hide 담당)
+                if s[6]:                       # 직선영역만 (호는 hide_curve_arc 담당)
                     continue
                 mx, my = (s[0] + s[2]) / 2.0, (s[1] + s[3]) / 2.0
                 best = min(nbsegs, key=lambda c: _pt_seg_dist(mx, my, c[0], c[1], c[2], c[3]))
@@ -662,7 +662,7 @@ def _line90_matches(edges, nodes):
     return res
 
 
-def compute_line_cut_hide(edges, nodes, k=RAIL_LINE_CUT_K):
+def hide_linear_edges(edges, nodes, k=RAIL_LINE_CUT_K):
     """[Stage 3] 직선(LINEAR)의 **안쪽 레일 1줄**을, 분기(fn)/합류(tn)하는 곡선(90/180)
     기준 **노드에서 K[타입]×radius 만큼** 끊는다(타입별 역산 공식).
       - 방향매칭(fn=분기/tn=합류)·안쪽레일·radius·타입 은 _line90_matches 가 기하 자동.
@@ -699,18 +699,18 @@ def merge_hide(*dicts):
     return out
 
 
-def compute_rail_hide(edges, nodes):
-    """곡선 trim 통합(Stage 2): 호 outer(compute_curve_hide) + 곡선 직선영역 방해
-    (compute_straight_block_hide). 직선 라인 끊기(Stage 3)는 line_cut.map 으로 convert
+def hide_curve_edges(edges, nodes):
+    """곡선 trim 통합(Stage 2): 호 outer(hide_curve_arc) + 곡선 직선영역 방해
+    (hide_curve_lead). 직선 라인 끊기(Stage 3)는 line_cut.map 으로 convert
     에서 따로 병합. edge별 좌/우 인터벌 병합."""
-    return merge_hide(compute_curve_hide(edges, nodes),
-                      compute_straight_block_hide(edges, nodes))
+    return merge_hide(hide_curve_arc(edges, nodes),
+                      hide_curve_lead(edges, nodes))
 
 
 def dual_rail_segments(edges, nodes, hide=None, gauge=RAIL_GAUGE):
     """엣지 중심선을 좌우 ±gauge/2 오프셋 → 2줄 레일 박스. 곡선 바깥=큰 반경.
     hide={edge:(left_iv,right_iv)} 정규화 인터벌이 있으면 그 구간 레일은 안 그림
-    (compute_curve_hide 가 계산). 디버그 색 유지. 반환: (rail_segs, []).
+    (hide_curve_arc 가 계산). 디버그 색 유지. 반환: (rail_segs, []).
     각 rail_seg = (pos, yaw, scale, cls) — cls 는 디버그 색 클래스(RAIL_DEBUG_KEYS).
     (pos/yaw/scale 만 쓰는 호출부는 s[0],s[1],s[2] 그대로 호환)."""
     rails = []
@@ -776,6 +776,62 @@ def _keep_subsegs(tlo, thi, hide_ivs):
                 nxt.append((hb, b))
         segs = nxt
     return [(a, b) for a, b in segs if b - a > 1e-9]
+
+
+# ----------------------------------------------------------------------------
+# USD 레이어 합성 데모용: raw 2줄 전부 + 숨길 인덱스 (base.usda / line_cut.usda 분리)
+#   dual_rail_segments 는 hide 를 '빼고' 만든다(=base 에 가릴 대상이 없음).
+#   레이어 오버라이드(LIVRPS)를 하려면 base 가 전부 들고 있어야 하므로:
+#     - dual_rail_segments_tagged: 아무것도 안 가린 '모든' 세그먼트 + 메타(edge,side,tmid)
+#     - hidden_seg_indices: 그 중 hide 인터벌에 걸리는 인덱스 (= line_cut.usda 의 invisibleIds)
+#   둘 다 동일 순회순서라 인덱스가 base PointInstancer 와 1:1 정렬된다.
+# ----------------------------------------------------------------------------
+def dual_rail_segments_tagged(edges, nodes, gauge=RAIL_GAUGE):
+    """가린 것 없는 모든 레일 박스 세그먼트 + 메타.
+    반환: list of (pos, yaw, scale, cls, edge_name, side, tmid)
+      side='L'/'R', tmid=세그먼트 중점의 정규화 t(0~1)."""
+    out = []
+    g = gauge / 2.0
+    for e in edges:
+        is_curve = e.vos_rail_type in _CURVE_TYPES
+        arc_ivs = _arc_t_intervals(_edge_clean_points(e, nodes)) if is_curve else []
+        clean = _densify(_edge_clean_points(e, nodes), RAIL_DRAW_MAXLEN)
+        if len(clean) < 2:
+            continue
+        perp = _perp_offsets(clean)
+        cum = [0.0]
+        for i in range(1, len(clean)):
+            cum.append(cum[-1] + math.dist(clean[i - 1], clean[i]))
+        total = cum[-1] or 1.0
+        left = [(p[0] + perp[i][0] * g, p[1] + perp[i][1] * g, p[2])
+                for i, p in enumerate(clean)]
+        right = [(p[0] - perp[i][0] * g, p[1] - perp[i][1] * g, p[2])
+                 for i, p in enumerate(clean)]
+        for side, poly in (("L", left), ("R", right)):
+            for i in range(len(poly) - 1):
+                tm = (cum[i] / total + cum[i + 1] / total) / 2.0
+                if not is_curve:
+                    cls = RAIL_CLS_GREEN
+                elif _in_intervals(tm, arc_ivs):
+                    cls = RAIL_CLS_RED
+                else:
+                    cls = RAIL_CLS_PINK
+                s = _seg_box(poly[i], poly[i + 1], RAIL_RAIL_W)
+                if s:
+                    out.append((s[0], s[1], s[2], cls, e.edge_name, side, tm))
+    return out
+
+
+def hidden_seg_indices(tagged, hide):
+    """tagged 세그먼트 중 hide(edge별 (left_iv,right_iv)) 인터벌에 중점이 걸리는 인덱스 리스트."""
+    hide = hide or {}
+    idxs = []
+    for i, s in enumerate(tagged):
+        en, side, tm = s[4], s[5], s[6]
+        lh, rh = hide.get(en, ([], []))
+        if _in_intervals(tm, lh if side == "L" else rh):
+            idxs.append(i)
+    return idxs
 
 
 # ----------------------------------------------------------------------------
@@ -1196,9 +1252,9 @@ def station_instances(stations, nodes, edges):
 
 if __name__ == "__main__":
     from mapio import parse_nodes, parse_edges
-    base = "/home/zunxin/vps/public/railConfig/y_short"
-    nodes = parse_nodes(f"{base}/nodes.cfg")
-    edges = parse_edges(f"{base}/edges.cfg")
+    base = "../input/fab_map"
+    nodes = parse_nodes(f"{base}/nodes.map")
+    edges = parse_edges(f"{base}/edges.map")
     inst = all_rail_instances(edges, nodes)
     print(f"edges: {len(edges)}  -> rail plane instances: {len(inst)}")
     # 타입별 인스턴스 수 점검

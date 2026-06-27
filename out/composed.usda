@@ -1,0 +1,12 @@
+#usda 1.0
+(
+    # 레이어 합성(LIVRPS) stitch. 위(강)부터 아래(약)로 겹친다.
+    #   line_cut.usda : over /World/Rails { invisibleIds } — 겹침 비파괴 숨김
+    #   base.usda     : raw 2줄 레일 + 스테이션/바닥/카메라 (지오메트리 원본)
+    # line_cut 줄을 지우면 raw 2줄로 복귀. 맵 데이터와 무관한 정적 파일.
+    subLayers = [
+        @./line_cut.usda@,
+        @./base.usda@
+    ]
+    upAxis = "Z"
+)

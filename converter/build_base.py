@@ -1,5 +1,5 @@
 """
-convert_map_to_usd.py — VPS 맵(nodes.cfg/edges.cfg/station.map) -> USD.
+build_base.py — VPS 맵(nodes.map/edges.map/station.map) -> base.usda (raw 2줄).
 
 VPS 의 파싱 + 지오메트리 로직을 그대로 쓰고(=mapio.py, geometry.py),
 출력 레이어만 USD 로 교체:
@@ -21,25 +21,8 @@ from pxr import UsdGeom, UsdShade
 
 import usd_build as ub
 import json
-from mapio import (parse_nodes, parse_edges, parse_stations, parse_station_body,
-                   parse_rail_hide)
+from mapio import parse_nodes, parse_edges, parse_stations, parse_station_body
 
-
-def load_or_make_line_cut(path, edges, nodes):
-    """직선 끊기: **2×radius 공식(compute_line_cut_hide)이 기본**. line_cut.map 이 있으면
-    그 안의 non-empty 항목만 수동 오버라이드로 덮어씀(특수 케이스 손조정용).
-    반환 {linear_edge:(left_iv, right_iv)}."""
-    import geometry as geo
-    line_hide = geo.compute_line_cut_hide(edges, nodes)        # 공식 기본
-    if os.path.exists(path):
-        n = 0
-        for en, (L, R) in parse_rail_hide(path).items():
-            if L or R:                                         # 값 있는 것만 오버라이드
-                line_hide[en] = (L, R)
-                n += 1
-        if n:
-            print(f"  line_cut: {n} edges overridden by {os.path.basename(path)}")
-    return line_hide
 import geometry as geo
 import models
 
@@ -71,8 +54,8 @@ def add_top_down_camera(stage, positions, path="/World/TopCam", margin=1.08):
 
 
 def convert(map_dir, out_path, station_marker=True):
-    nodes = parse_nodes(f"{map_dir}/nodes.cfg")
-    edges = parse_edges(f"{map_dir}/edges.cfg")
+    nodes = parse_nodes(f"{map_dir}/nodes.map")
+    edges = parse_edges(f"{map_dir}/edges.map")
     try:
         stations = parse_stations(f"{map_dir}/station.map")
     except FileNotFoundError:
@@ -87,12 +70,10 @@ def convert(map_dir, out_path, station_marker=True):
     # --- rails: instanced 박스 세그먼트 (LINEAR=1개, 곡선=적응적 8~16개) ---
     #   두꺼운 BasisCurves 튜브(37k점 테셀레이션) 대신 박스 세그먼트 PointInstancer.
     polylines = geo.rail_polylines(edges, nodes)   # 바닥 bbox/카메라용
-    # 곡선 trim(Stage2: 호 outer + 곡선 직선영역 방해)
-    rail_hide = geo.compute_rail_hide(edges, nodes)
-    # 직선 trim(Stage3): line_cut.map (per-edge 손편집). 없으면 기본값 자동생성·저장.
-    line_hide = load_or_make_line_cut(f"{map_dir}/line_cut.map", edges, nodes)
-    rail_hide = geo.merge_hide(rail_hide, line_hide)
-    rsegs, _tsegs = geo.dual_rail_segments(edges, nodes, hide=rail_hide)   # 2줄 레일
+    # base 는 '아무것도 안 가린' raw 2줄 전부를 들고 있는다. 겹침 정리(교차점 trim)는
+    #   별도 레이어 line_cut.usda 가 invisibleIds 로 비파괴 오버라이드한다(build_line_cut.py).
+    #   여기서 가려버리면 base 에 가릴 대상이 없어져 레이어 합성이 성립 안 함.
+    rsegs = geo.dual_rail_segments_tagged(edges, nodes)   # (pos,yaw,scale,cls,edge,side,tmid) 전부
     # 레일 색: realistic(알루미늄 그레이, 기본) / debug(초록=직선·분홍=곡선직선·빨강=호).
     #   USD railColor variantSet 으로 토글 (Composer Variant UI 또는 omni.ui 버튼).
     #   emissive 금지(37k 면이 GI 광원→HydraEngine error6+fps폭락).
@@ -218,7 +199,6 @@ def convert(map_dir, out_path, station_marker=True):
 
 
 if __name__ == "__main__":
-    map_dir = sys.argv[1] if len(sys.argv) > 1 else \
-        "/home/zunxin/vps/public/railConfig/y_short"
-    out_path = sys.argv[2] if len(sys.argv) > 2 else "out/y_short.usda"
+    map_dir = sys.argv[1] if len(sys.argv) > 1 else "../input/fab_map"
+    out_path = sys.argv[2] if len(sys.argv) > 2 else "../out/base.usda"
     convert(map_dir, out_path)

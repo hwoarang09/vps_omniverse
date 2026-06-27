@@ -41,13 +41,13 @@ edge 를 좌우 ±gauge/2 로 오프셋해 2줄 레일을 그린 뒤, **합류/�
   `RAIL_ARC_TURN_DEG=1°` 초과면 그 정점 인접 2세그를 호로 마킹 → 정규화 t-인터벌.
   (densify 가 직선을 잘게 쪼개도 chord 꺾임 기준이라 안 흔들림. 경계 ±1세그 오차는 있음.)
 
-## 3. trim = `compute_rail_hide` (두 메커니즘 병합)
+## 3. trim = `hide_curve_edges` (두 메커니즘 병합)
 
-`compute_rail_hide = compute_curve_hide(호) + compute_straight_block_hide(직선영역)`,
+`hide_curve_edges = hide_curve_arc(호) + hide_curve_lead(직선영역)`,
 edge별 (left_iv, right_iv) 정규화 인터벌을 병합(`_merge_intervals`). 렌더는 이 인터벌
 구간만 안 그림. **직선 edge(LINEAR)는 본선이라 절대 안 건드림.**
 
-### (A) 호 outer trim — `compute_curve_hide`
+### (A) 호 outer trim — `hide_curve_arc`
 - **각 호(arc)마다**, 그 호가 **가까운 edge 끝**(fn/tn 중 lead 가 짧은 쪽)에서 **호 길이의
   비율 + 그쪽 lead** 를 그 호의 **바깥(outer) 레일**에서 삭제. inner 호는 보존.
   - **CSC**(호 2개, 같은 방향): fn 쪽 호1, tn 쪽 호2 각각 → 최대 2번.
@@ -62,7 +62,7 @@ edge별 (left_iv, right_iv) 정규화 인터벌을 병합(`_merge_intervals`). �
 - outer = 호별 `_arc_turn_sign`(CCW→R, CW→L). (CSC/90/180 은 호 방향 일관 → edge 단위와 동일)
 - **degree 2(단순연결)는 건드리지 않음** (S 제외) — 그 호는 실제 경로라 지우면 U 가 깨짐.
 
-### (B) 직선영역 방해 trim — `compute_straight_block_hide`
+### (B) 직선영역 방해 trim — `hide_curve_lead`
 - 곡선의 **직선영역(lead-in/out)이 다른 통로를 "가로막는" 부분**만 삭제(**양쪽 레일**).
 - 가로막음 판정 = 그 직선영역 레일이 이웃(노드 공유) edge 중심선 corridor(±gauge/2) **안**이고,
   그 이웃과 이루는 **각 > `RAIL_CROSS_ANGLE`(30°)** = transverse(가로지름).
