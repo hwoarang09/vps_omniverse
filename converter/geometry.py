@@ -599,7 +599,7 @@ def hide_curve_lead(edges, nodes, gauge=RAIL_GAUGE,
 
 RAIL_LINE_CUT_K = {                     # 직선 끊는 길이 = K × (분기/합류 곡선 radius). 타입별 역산.
     "CURVE_90": 2.0,                   # 검증됨 (E0006).
-    "CURVE_180": 2.0,                  # 검증됨 (E0002).
+    "CURVE_180": 2.0,                  # 검증됨 (E0002). (캘리 결과 2.5+는 과함 — fine 세그 granularity)
     "CURVE_CSC": 2.0,                  # 임시(캘리브레이션 후 교체).
     "S_CURVE": 2.0,                    # 임시(캘리브레이션 후 교체).
 }
@@ -833,6 +833,76 @@ def hidden_seg_indices(tagged, hide):
         if _in_intervals(tm, lh if side == "L" else rh):
             idxs.append(i)
     return idxs
+
+
+# ----------------------------------------------------------------------------
+# 기하 컷(geometry override)용: 제거 인터벌(hide)을 '정확한 길이'로 반영한 트림본
+#   invisibleIds(가시성 0.5 세그 단위 양자화) 대신, 남는 구간만 정확한 박스로 다시 굽는다.
+#   같은 trim 수학(hide)을 쓰되 '적용 방법'만 다름 — cut.usda 가 base 의 /World/Rails
+#   인스턴스 배열(positions/orientations/scales/protoIndices)을 통째로 override 한다.
+# ----------------------------------------------------------------------------
+def dual_rail_segments_trimmed(edges, nodes, hide=None, gauge=RAIL_GAUGE):
+    """제거 인터벌(hide)을 정확한 기하로 반영한 좌우 2줄 레일 박스.
+    dual_rail_segments_tagged(base) 와 같은 (pos, yaw, scale, cls, ...) 규약을 내되,
+    숨김이 아니라 **남는 구간만** 정확한 길이/중심 박스로 생성:
+      - 직선(LINEAR): densify 안 함(원본 2점). 남는 t-구간마다 박스 1개 = 정확한 길이.
+                      → 0.5 양자화 없음. mult=1.0(오버행 없이 길이 그대로).
+      - 곡선        : 기존처럼 RAIL_DRAW_MAXLEN 적응 세그먼트로 그리되 제거 경계에서
+                      정확히 잘라 남는 부분만(경계 부분세그는 길이/위치 정확).
+                      온전한 조각은 연속용 mult(RAIL_SEG_MULT), 잘린 경계는 mult=1.0.
+      - 색 클래스(green/pink/red) 태깅은 dual_rail_segments_tagged 와 동일 로직.
+    반환: list of (pos, yaw, scale, cls) — base 튜플 앞 4개와 동일 규약."""
+    rails = []
+    g = gauge / 2.0
+    hide = hide or {}
+    for e in edges:
+        is_curve = e.vos_rail_type in _CURVE_TYPES
+        clean0 = _edge_clean_points(e, nodes)
+        arc_ivs = _arc_t_intervals(clean0) if is_curve else []
+        # 직선은 잘게 쪼개지 않음(원본 2점) → 남는 구간 1박스로 정확한 길이.
+        clean = _densify(clean0, RAIL_DRAW_MAXLEN) if is_curve else clean0
+        if len(clean) < 2:
+            continue
+        perp = _perp_offsets(clean)
+        cum = [0.0]
+        for i in range(1, len(clean)):
+            cum.append(cum[-1] + math.dist(clean[i - 1], clean[i]))
+        total = cum[-1] or 1.0
+        left = [(p[0] + perp[i][0] * g, p[1] + perp[i][1] * g, p[2])
+                for i, p in enumerate(clean)]
+        right = [(p[0] - perp[i][0] * g, p[1] - perp[i][1] * g, p[2])
+                 for i, p in enumerate(clean)]
+        lh, rh = hide.get(e.edge_name, ([], []))
+        for poly, intervals in ((left, lh), (right, rh)):
+            for i in range(len(poly) - 1):
+                tlo, thi = cum[i] / total, cum[i + 1] / total
+                span = (thi - tlo) or 1e-9
+                # hide 인터벌을 '정확한 t 지점'에서 잘라 남는 부분(subseg)만 박스로.
+                for va, vb in _keep_subsegs(tlo, thi, intervals):
+                    tm = (va + vb) / 2.0
+                    if not is_curve:
+                        cls = RAIL_CLS_GREEN
+                    elif _in_intervals(tm, arc_ivs):
+                        cls = RAIL_CLS_RED
+                    else:
+                        cls = RAIL_CLS_PINK
+                    fa, fb = (va - tlo) / span, (vb - tlo) / span
+                    pa = (poly[i][0] + (poly[i + 1][0] - poly[i][0]) * fa,
+                          poly[i][1] + (poly[i + 1][1] - poly[i][1]) * fa,
+                          poly[i][2] + (poly[i + 1][2] - poly[i][2]) * fa)
+                    pb = (poly[i][0] + (poly[i + 1][0] - poly[i][0]) * fb,
+                          poly[i][1] + (poly[i + 1][1] - poly[i][1]) * fb,
+                          poly[i][2] + (poly[i + 1][2] - poly[i][2]) * fb)
+                    if is_curve:
+                        # 곡선: 온전한 조각만 겹쳐 연속 리본, 잘린 경계는 정확히.
+                        clipped = va > tlo + 1e-9 or vb < thi - 1e-9
+                        mult = 1.0 if clipped else RAIL_SEG_MULT
+                    else:
+                        mult = 1.0   # 직선: 남는 구간 1박스 = 정확한 길이(오버행 없음)
+                    s = _seg_box(pa, pb, RAIL_RAIL_W, mult=mult)
+                    if s:
+                        rails.append((s[0], s[1], s[2], cls))
+    return rails, []
 
 
 # ----------------------------------------------------------------------------

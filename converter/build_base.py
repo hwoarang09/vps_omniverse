@@ -20,7 +20,7 @@ import geometry as geo
 import models
 import usd_build as ub
 from mapio import parse_edges, parse_nodes, parse_station_body, parse_stations
-from pxr import Gf, UsdGeom, UsdShade
+from pxr import Gf, UsdGeom
 
 
 def add_top_down_camera(stage, positions, path="/World/TopCam", margin=1.08):
@@ -66,27 +66,35 @@ def convert(map_dir, out_path, station_marker=True):
     # --- rails: instanced 박스 세그먼트 (LINEAR=1개, 곡선=적응적 8~16개) ---
     #   두꺼운 BasisCurves 튜브(37k점 테셀레이션) 대신 박스 세그먼트 PointInstancer.
     polylines = geo.rail_polylines(edges, nodes)   # 바닥 bbox/카메라용
-    # base 는 '아무것도 안 가린' raw 2줄 전부를 들고 있는다. 겹침 정리(교차점 trim)는
-    #   별도 레이어 line_cut.usda 가 invisibleIds 로 비파괴 오버라이드한다(build_line_cut.py).
-    #   여기서 가려버리면 base 에 가릴 대상이 없어져 레이어 합성이 성립 안 함.
+    # base 는 '트림 안 한' raw 풀길이 2줄 전부를 들고 있는다. 겹침 정리(교차점 trim)는
+    #   별도 레이어 cut.usda 가 /World/Rails 인스턴스 배열을 '정확한 기하'로 통째로
+    #   override 한다(build_cut.py). 여기서 트림해버리면 cut 으로 교체할 원본이 없어져
+    #   레이어 합성(둘 중 선택) 데모가 성립 안 함.
     rsegs = geo.dual_rail_segments_tagged(edges, nodes)   # (pos,yaw,scale,cls,edge,side,tmid) 전부
-    # 레일 색: realistic(알루미늄 그레이, 기본) / debug(초록=직선·분홍=곡선직선·빨강=호).
-    #   USD railColor variantSet 으로 토글 (Composer Variant UI 또는 omni.ui 버튼).
+    # 레일 색: 타입(green=직선·pink=곡선직선·red=호)마다 '전용 머티리얼' Rail_{key} 를
+    #   만들고 프로토타입을 거기에 '고정' 바인딩. 빌드 기본값은 realistic(알루미늄 그레이).
+    #   런타임 색 토글(realistic↔debug)은 익스텐션(vps.rail.tools)이 이 머티리얼들의
+    #   셰이더 입력값(diffuseColor/metallic/roughness)을 직접 바꿔서 수행한다.
+    #   (variantSet 으로 '바인딩'을 갈아끼우면 PointInstancer 인스턴스 색이 런타임에
+    #    dirty 처리 안 돼 화면 갱신이 안 됨 — 그래서 값 변경 방식으로 전환.)
     #   emissive 금지(37k 면이 GI 광원→HydraEngine error6+fps폭락).
+    #   rail_colors: 프로토타입 displayColor 용 타입별 색(usdview displayColor 폴백).
     rail_colors = {
         geo.RAIL_CLS_GREEN: (0.15, 0.85, 0.25),
         geo.RAIL_CLS_PINK:  (1.00, 0.45, 0.75),
         geo.RAIL_CLS_RED:   (0.95, 0.12, 0.12),
     }
-    mat_real = ub.add_preview_material(stage, "/World/Looks/Rail_realistic",
-                                       diffuse=(0.52, 0.57, 0.64), metallic=0.65, roughness=0.35)
-    mat_dbg = {k: ub.add_preview_material(stage, f"/World/Looks/Rail_{k}",
-                                          diffuse=rail_colors[k], metallic=0.1, roughness=0.5)
-               for k in geo.RAIL_DEBUG_KEYS}
+    # 타입별 전용 머티리얼 — 기본값은 realistic 그레이(빌드 직후 회색). 값은 익스텐션 상수와 일치.
+    rail_mats = {k: ub.add_preview_material(stage, f"/World/Looks/Rail_{k}",
+                                            diffuse=(0.52, 0.57, 0.64),
+                                            metallic=0.65, roughness=0.35)
+                 for k in geo.RAIL_DEBUG_KEYS}
     rail_protos, rail_key_to_idx = [], {}
     for i, key in enumerate(geo.RAIL_DEBUG_KEYS):
         pth = f"/World/Protos/box_rail_{key}"
-        ub.bind_material(ub.add_unit_cube_proto(stage, pth, color=rail_colors[key]), mat_real)
+        # 프로토타입을 자기 전용 머티리얼에 '고정' 바인딩 (런타임에 바인딩은 안 바뀜).
+        ub.bind_material(ub.add_unit_cube_proto(stage, pth, color=rail_colors[key]),
+                         rail_mats[key])
         rail_protos.append(pth)
         rail_key_to_idx[key] = i
     ub.make_instancer(stage, "/World/Rails", rail_protos,
@@ -94,17 +102,6 @@ def convert(map_dir, out_path, station_marker=True):
                       orientations=[ub.quat_yaw_rad(s[1]) for s in rsegs],
                       scales=[Gf.Vec3f(*s[2]) for s in rsegs],
                       proto_indices=[rail_key_to_idx[s[3]] for s in rsegs])
-    # railColor variantSet: realistic(전부 그레이) / debug(타입별 색). 기본 realistic.
-    protos_prim = stage.GetPrimAtPath("/World/Protos")
-    vset = protos_prim.GetVariantSets().AddVariantSet("railColor")
-    for vname, matof in (("realistic", lambda k: mat_real), ("debug", lambda k: mat_dbg[k])):
-        vset.AddVariant(vname)
-        vset.SetVariantSelection(vname)
-        with vset.GetVariantEditContext():
-            for key in geo.RAIL_DEBUG_KEYS:
-                UsdShade.MaterialBindingAPI.Apply(
-                    stage.GetPrimAtPath(f"/World/Protos/box_rail_{key}")).Bind(matof(key))
-    vset.SetVariantSelection("realistic")
 
     # --- device(장비): station_body.map 있으면 사용, 없으면 자동 계산 ---
     #   형상은 models.py 빌더가 model 이름(EFEM/LPS/NTB/STOCKER/OHB_RACK)으로 분기.

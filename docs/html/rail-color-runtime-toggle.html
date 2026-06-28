@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  vps_omniverse 문서 템플릿 (자급형 단일 파일 — 외부 의존성 0, 오프라인 OK)
+  ----------------------------------------------------------------------------
+  쓰는 법 (doc 에이전트도 이 규칙대로):
+    1) <title> 과 .doc-title / data-version 을 문서에 맞게 수정.
+    2) <main id="content"> 안에 내용만 채운다. 섹션 제목은 <h2>/<h3>/<h4>.
+         h2 = 1단계(1, 2, 3), h3 = 2단계(1.1), h4 = 3단계(1.2.1)
+       → 번호·왼쪽 목차 트리·스크롤 하이라이트는 JS 가 자동 생성. 손으로 번호 X.
+    3) 본문 컴포넌트(있는 것만 골라 씀):
+         <table>…</table>                      표
+         <div class="card">…</div>             카드(단계/요점 박스)
+         <div class="flow">…</div>             ASCII 다이어그램(고정폭)
+         <pre><code>…</code></pre>             코드블록
+         <span class="badge badge-green">…</span>  뱃지(green/cyan/orange/purple/red)
+         <span class="highlight">…</span>      강조
+         <p class="note">…</p>                 보조 설명(흐린 글씨)
+    4) 버전 올릴 때: data-version 수정 + "변경 이력" 섹션에 줄 추가.
+  새 문서 = 이 파일 복사 → 내용만 교체.
+  ============================================================================
+-->
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>레일 색 런타임 토글 — vps_omniverse Docs</title>
+<style>
+:root{
+  --bg-void:#080b12; --bg-deep:#0c1019; --bg-surface:#111722; --bg-elevated:#161e2e;
+  --bg-card:#131a28; --bg-code:#0a0f18; --border:#1e2940; --border-subtle:#172035;
+  --text:#b8c4d8; --text-secondary:#7889a4; --text-muted:#4d5f7a;
+  --text-heading:#e2e8f4; --text-bright:#f0f4ff;
+  --cyan:#4ed2cd; --cyan-dim:rgba(78,210,205,.08); --cyan-glow:rgba(78,210,205,.25);
+  --orange:#e8a040; --purple:#9577f0; --green:#3dd68c; --red:#e85454;
+  --sidebar-w:300px; --content-max:880px; --radius:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  font-family:'Outfit','Noto Sans KR',system-ui,sans-serif;
+  background:var(--bg-void); color:var(--text); line-height:1.7;
+  background-image:radial-gradient(circle at 1px 1px, rgba(78,210,205,.04) 1px, transparent 0);
+  background-size:32px 32px;
+}
+.layout{display:flex; min-height:100vh}
+
+/* ── Sidebar ───────────────────────────────────────────── */
+.sidebar{
+  width:var(--sidebar-w); flex-shrink:0; position:sticky; top:0; height:100vh;
+  overflow-y:auto; background:var(--bg-deep); border-right:1px solid var(--border);
+  padding:20px 0;
+}
+.sidebar-head{padding:0 20px 16px; border-bottom:1px solid var(--border-subtle); margin-bottom:12px}
+.doc-title{font-size:18px; font-weight:700; color:var(--text-bright); display:block}
+.doc-sub{font-size:11px; color:var(--text-muted); display:block; margin-top:2px}
+.ver-row{display:flex; align-items:center; gap:8px; margin-top:10px}
+.ver-badge{
+  font-size:11px; font-weight:600; color:var(--cyan); background:var(--cyan-dim);
+  border:1px solid var(--cyan-glow); border-radius:20px; padding:2px 10px;
+}
+.search-wrap{padding:12px 16px}
+#search{
+  width:100%; background:var(--bg-surface); border:1px solid var(--border);
+  border-radius:8px; padding:8px 12px; color:var(--text); font-size:13px; font-family:inherit;
+}
+#search:focus{outline:none; border-color:var(--cyan); box-shadow:0 0 0 2px var(--cyan-dim)}
+#search::placeholder{color:var(--text-muted)}
+
+/* TOC tree (auto) */
+#toc{padding:4px 8px 20px}
+.toc-item{display:flex; align-items:center; border-radius:6px}
+.toc-item a{
+  flex:1; text-decoration:none; color:var(--text-secondary); font-size:13px;
+  padding:5px 8px; border-radius:6px; display:block; transition:.12s;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.toc-item a:hover{color:var(--text-bright); background:var(--bg-surface)}
+.toc-item a.active{color:var(--cyan); background:var(--cyan-dim); font-weight:600}
+.toc-num{color:var(--text-muted); font-variant-numeric:tabular-nums; margin-right:6px}
+.toc-item a.active .toc-num{color:var(--cyan)}
+.lvl-2 a{padding-left:24px; font-size:12.5px}
+.lvl-3 a{padding-left:40px; font-size:12px; color:var(--text-muted)}
+.toc-toggle{
+  width:18px; height:24px; flex-shrink:0; cursor:pointer; color:var(--text-muted);
+  display:flex; align-items:center; justify-content:center; font-size:10px; user-select:none;
+  transition:transform .15s;
+}
+.toc-toggle.collapsed{transform:rotate(-90deg)}
+.toc-toggle.leaf{visibility:hidden}
+.toc-hidden{display:none}
+
+/* ── Main ──────────────────────────────────────────────── */
+.main{flex:1; padding:48px 56px; max-width:calc(var(--content-max) + 112px); width:100%}
+h1{font-size:30px; color:var(--text-bright); font-weight:700; margin-bottom:6px}
+h1 .subtitle{display:block; font-size:14px; color:var(--text-muted); font-weight:400; margin-top:4px}
+h2{font-size:22px; color:var(--text-heading); margin:40px 0 14px; padding-top:8px;
+   border-top:1px solid var(--border-subtle); font-weight:650}
+h3{font-size:17px; color:var(--cyan); margin:26px 0 10px; font-weight:600}
+h4{font-size:15px; color:var(--text-heading); margin:18px 0 8px; font-weight:600}
+h2 .hnum,h3 .hnum,h4 .hnum{color:var(--text-muted); font-weight:500; margin-right:10px; font-variant-numeric:tabular-nums}
+p{margin:10px 0}
+.note{color:var(--text-muted); font-size:13.5px}
+a{color:var(--cyan)}
+code{background:var(--bg-code); color:var(--cyan-bright,#6eeae5); padding:1px 6px; border-radius:5px;
+     font-family:'JetBrains Mono','Fira Code',monospace; font-size:.88em}
+pre{background:var(--bg-code); border:1px solid var(--border); border-radius:var(--radius);
+    padding:16px; overflow-x:auto; margin:14px 0}
+pre code{background:none; padding:0; color:var(--text); font-size:13px; line-height:1.55}
+table{width:100%; border-collapse:collapse; margin:14px 0; font-size:13.5px}
+th,td{border:1px solid var(--border); padding:8px 12px; text-align:left; vertical-align:top}
+th{background:var(--bg-elevated); color:var(--text-heading); font-weight:600}
+td{background:var(--bg-surface)}
+.card{background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius);
+      padding:16px 20px; margin:14px 0}
+.card ol,.card ul{margin-left:18px}
+.flow{background:var(--bg-code); border:1px solid var(--border); border-radius:var(--radius);
+      padding:18px; margin:14px 0; font-family:'JetBrains Mono',monospace; font-size:12.5px;
+      line-height:1.5; white-space:pre; overflow-x:auto; color:var(--text-secondary)}
+.highlight{color:var(--cyan); font-weight:600}
+.flow .green{color:var(--green)} .flow .orange{color:var(--orange)} .flow .purple{color:var(--purple)}
+.badge{display:inline-block; font-size:11px; font-weight:600; padding:2px 9px; border-radius:20px}
+.badge-green{color:var(--green); background:rgba(61,214,140,.1); border:1px solid rgba(61,214,140,.25)}
+.badge-cyan{color:var(--cyan); background:var(--cyan-dim); border:1px solid var(--cyan-glow)}
+.badge-orange{color:var(--orange); background:rgba(232,160,64,.1); border:1px solid rgba(232,160,64,.25)}
+.badge-purple{color:var(--purple); background:rgba(149,119,240,.1); border:1px solid rgba(149,119,240,.25)}
+.badge-red{color:var(--red); background:rgba(232,84,84,.1); border:1px solid rgba(232,84,84,.25)}
+mark{background:rgba(232,160,64,.35); color:var(--text-bright); border-radius:3px; padding:0 2px}
+hr{border:none; border-top:1px solid var(--border); margin:32px 0}
+.search-hide{display:none !important}
+
+@media(max-width:760px){
+  .sidebar{position:fixed; left:-100%; z-index:50; transition:left .2s}
+  .sidebar.open{left:0}
+  .main{padding:24px 20px}
+}
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <span class="doc-title">레일 색 런타임 토글</span>
+      <span class="doc-sub">vps_omniverse · OpenUSD · 학습노트</span>
+      <div class="ver-row">
+        <span class="ver-badge" data-version>v0.2.0</span>
+        <span class="doc-sub" data-date>2026-06-28</span>
+      </div>
+    </div>
+    <div class="search-wrap">
+      <input id="search" type="text" placeholder="🔍 검색 (제목·본문)…" autocomplete="off">
+    </div>
+    <nav id="toc"><!-- JS 가 자동 생성 --></nav>
+  </aside>
+
+  <main class="main" id="content">
+    <h1>레일 색 런타임 토글<span class="subtitle">variantSet 방식이 왜 안 됐고, 값(value) 토글로 어떻게 고쳤나 — PointInstancer 갱신의 함정</span></h1>
+
+    <h2>개요</h2>
+    <p>Omniverse Kit(USD Composer)에서 레일 색 <span class="highlight">realistic ↔ debug</span> 토글
+       버튼(<code>exts/vps.rail.tools</code>)을 눌러도 화면의 레일 색이 안 바뀌던 문제를 다룬다.
+       원인은 <span class="highlight">PointInstancer 가 런타임의 "binding(관계) 변경"엔 갱신되지 않는다</span>는 점이었고,
+       해결은 binding 을 건드리지 않고 머티리얼의 <span class="highlight">셰이더 입력 "값(value)"</span> 만 바꾸는 것이었다.</p>
+    <div class="card">
+      <ul>
+        <li><span class="badge badge-red">옛 방식</span> <code>railColor</code> variantSet — variant 가 proto 의 <code>material:binding</code>(관계)을 갈아끼움 → 런타임 토글 시 인스턴서 색 미갱신</li>
+        <li><span class="badge badge-green">새 방식</span> 타입별 전용 머티리얼에 <b>고정 바인딩</b> + 버튼이 셰이더 <code>inputs:diffuseColor/metallic/roughness</code> 값만 <code>Set</code> → 런타임 갱신됨</li>
+      </ul>
+    </div>
+    <p class="note">학습 노트(NCP-OUSD 대비) 성격. 모든 서술은 코드/커밋 근거이며 <code>파일:라인</code> 으로 인용한다.</p>
+
+    <h2>배경 — 레일은 어떻게 그려지나</h2>
+    <p>레일은 단일 <code>/World/Rails</code> PointInstancer 로 그려진다. 색은 인스턴스가 참조하는
+       프로토타입(3개)의 머티리얼 바인딩에서 상속된다. 즉 "인스턴스 색 = proto 의 머티리얼"이라는
+       간접 구조라서, <b>무엇을 바꾸면 인스턴스가 다시 칠해지는가</b>가 이 문서의 핵심이 된다.</p>
+    <table>
+      <tr><th>요소</th><th>값 / 경로</th><th>비고</th></tr>
+      <tr><td>인스턴서</td><td><code>/World/Rails</code></td><td>인스턴스 45,136개 (invisible 8,725)</td></tr>
+      <tr><td>프로토타입</td><td><code>/World/Protos/box_rail_{green,pink,red}</code></td><td>3개. 타입별 단위 큐브</td></tr>
+      <tr><td>타입 의미</td><td>green=직선 / pink=곡선의 직선구간 / red=곡선의 호</td><td><code>geometry.py:371-374</code></td></tr>
+      <tr><td>색의 출처</td><td>proto 에 바인딩된 머티리얼의 셰이더</td><td>인스턴스는 proto 머티리얼 상속</td></tr>
+    </table>
+
+    <h2>타임라인 (git)</h2>
+    <p>핵심: <b>variantSet 도입 직전(<code>6b830d4</code>)까지의 방식은 이미 "값 기반 고정 바인딩"이었고,
+       오늘의 수정은 그 방식으로의 복귀</b>다. 즉 "예전엔 잘 됐다"는 정확한 기억이다.</p>
+    <table>
+      <tr><th>시점</th><th>커밋</th><th>방식</th><th>런타임 색 변경</th></tr>
+      <tr><td>~6/7 이전</td><td><code>6b830d4</code></td><td>타입별 머티리얼 <code>/World/Looks/Rail_{key}</code> + 색 값 직접(고정 바인딩)</td><td><span class="badge badge-green">정상</span></td></tr>
+      <tr><td>6/7</td><td><code>10f7b85</code></td><td>variantSet 도입 — variant 가 바인딩을 스왑하는 토글</td><td><span class="badge badge-red">깨짐</span></td></tr>
+      <tr><td>최근</td><td>—</td><td>깨진 variantSet 구조가 usda 재생성으로 파일에 구워짐</td><td><span class="badge badge-red">깨짐</span></td></tr>
+      <tr><td>오늘</td><td><span class="badge badge-orange">미커밋</span></td><td>값 기반 고정 바인딩 + 값 토글로 복귀</td><td><span class="badge badge-green">복구</span></td></tr>
+    </table>
+    <p>사용자가 실제 겪은 흐름: (1) 원래 값 기반이라 색이 잘 보임/바뀜 → (2) variantSet 을 공부하며 그
+       방식으로 바꿔 usda 재생성 → 런타임 바인딩 스왑을 PointInstancer 가 못 읽어 깨짐 →
+       (3) 오늘 값 기반으로 되돌려 복구. 사이 커밋(<code>d738d3a</code> 레이어 분리,
+       <code>4ae9389</code> ruff)은 렌더 거동과 무관하다.</p>
+
+    <h2>옛 방식 — variantSet</h2>
+
+    <h3>무엇을 author 했나</h3>
+    <p>빌드 스크립트(당시 <code>converter/convert_map_to_usd.py</code>)가
+       <code>/World/Protos</code> 에 <code>railColor</code> variantSet 을 만들고, 각 variant 의
+       <span class="highlight">edit context 안에서 proto 의 머티리얼 바인딩을 다르게</span> 걸었다.</p>
+    <table>
+      <tr><th>variant</th><th>바인딩 대상</th><th>효과</th></tr>
+      <tr><td><code>realistic</code> (기본)</td><td>3 proto 전부 → <code>/World/Looks/Rail_realistic</code></td><td>알루미늄 그레이 공유 머티리얼</td></tr>
+      <tr><td><code>debug</code></td><td>각 proto → <code>/World/Looks/Rail_{green,pink,red}</code></td><td>타입별 색 머티리얼</td></tr>
+    </table>
+    <p class="note">즉 두 variant 의 차이는 <b><code>material:binding</code> 관계의 타깃</b>이다 (variant 마다 다른 머티리얼을 가리킴). 근거: 옛 <code>convert_map_to_usd.py</code> 의 variant edit context 안 <code>MaterialBindingAPI(...).Bind(matof(key))</code>.</p>
+    <pre><code># 옛 converter (convert_map_to_usd.py) — variant 가 binding 을 갈아끼움
+vset = protos_prim.GetVariantSets().AddVariantSet("railColor")
+for vname, matof in (("realistic", lambda k: mat_real),
+                     ("debug",     lambda k: mat_dbg[k])):
+    vset.AddVariant(vname)
+    vset.SetVariantSelection(vname)
+    with vset.GetVariantEditContext():
+        for key in geo.RAIL_DEBUG_KEYS:
+            UsdShade.MaterialBindingAPI.Apply(
+                stage.GetPrimAtPath(f"/World/Protos/box_rail_{key}")
+            ).Bind(matof(key))          # ← 바인딩(관계) 자체를 교체
+vset.SetVariantSelection("realistic")</code></pre>
+
+    <h3>런타임 토글 코드</h3>
+    <p>옛 확장(<code>extension.py</code>)의 버튼은 variant selection 만 바꿨다.</p>
+    <pre><code># 옛 extension.py — selection 전환
+vs = prim.GetVariantSet("railColor")
+nxt = "debug" if vs.GetVariantSelection() == "realistic" else "realistic"
+vs.SetVariantSelection(nxt)         # ← 선택만 바꿈 → 내부적으로 binding 재배선</code></pre>
+
+    <h3>왜 안 됐나 (실패 메커니즘)</h3>
+    <div class="card">
+      <ol>
+        <li><b>첫 sync 는 정상.</b> Hydra 는 스테이지를 처음 로드/sync 할 때 binding 을 resolve 해서
+            PointInstancer 인스턴스에 머티리얼을 붙인다 → 이 시점에 선택된 variant 색은 제대로 렌더된다.
+            (이는 일반 USD 사실이며, 빌드 기본값/fresh load 로 본 색이 맞게 나오는 이유다.)</li>
+        <li><b>런타임 재배선은 무시.</b> 이미 sync 된 뒤 <code>SetVariantSelection</code> 으로 binding 을
+            갈아끼우면, 인스턴서의 인스턴스 머티리얼이 <span class="highlight">re-resolve(재해석)되지 않는다</span>
+            (dirty 처리 누락). → 색이 안 바뀐다.</li>
+        <li><b>FSD 무관.</b> Fabric Scene Delegate 를 켜도 꺼도 동일하게 실패(실측). 즉 FSD 설정 문제가
+            아니라 "런타임 binding 변경 → 인스턴서 미갱신"이라는 구조적 문제다.</li>
+      </ol>
+    </div>
+    <p class="note">정정: 초기 작성본은 "variant 도입 후 런타임 토글이 처음부터 안 됐고, 사용자가 본 색은
+       정적(로드 시점)이었을 것"이라고 추측했으나 이는 <b>틀렸다</b>. variantSet 도입 <b>직전</b>(<code>6b830d4</code>)의
+       방식은 값 기반 고정 바인딩이라 런타임에서도 정상 동작했다(타임라인 표 참조). 깨진 것은
+       variantSet(바인딩 스왑) 방식으로 바꾼 뒤뿐이다.</p>
+
+    <h2>새 방식 — 값(value) 토글</h2>
+
+    <h3>빌드 — 고정 바인딩 + 전용 머티리얼</h3>
+    <p>새 <code>converter/build_base.py</code> 는 variantSet 을 <b>제거</b>하고, 타입 3개마다 전용 머티리얼
+       <code>/World/Looks/Rail_{green,pink,red}</code> 를 만들어 각 proto 를 자기 머티리얼에
+       <span class="highlight">고정 바인딩</span> 한다. 바인딩은 이후 절대 바뀌지 않는다.
+       기본값은 realistic(알루미늄 그레이).</p>
+    <pre><code># build_base.py:87-98 — 타입별 전용 머티리얼 + proto 고정 바인딩
+rail_mats = {k: ub.add_preview_material(stage, f"/World/Looks/Rail_{k}",
+                                        diffuse=(0.52, 0.57, 0.64),
+                                        metallic=0.65, roughness=0.35)
+             for k in geo.RAIL_DEBUG_KEYS}
+for i, key in enumerate(geo.RAIL_DEBUG_KEYS):
+    pth = f"/World/Protos/box_rail_{key}"
+    ub.bind_material(ub.add_unit_cube_proto(stage, pth, color=rail_colors[key]),
+                     rail_mats[key])          # ← 한 번만, 고정</code></pre>
+
+    <h3>런타임 — 셰이더 입력값 Set</h3>
+    <p>새 <code>extension.py</code> 의 버튼은 variant 가 아니라 3개 머티리얼의 surface 셰이더
+       입력값을 직접 바꾼다. 셰이더는 <code>Material.GetSurfaceOutput().GetConnectedSource()</code> 로
+       찾고, 없으면 관례 경로 <code>{mat}/Shader</code> 로 폴백한다 (<code>extension.py:66-79</code>).
+       현재 모드는 <code>self._debug</code> bool 로 추적한다.</p>
+    <pre><code># extension.py:81-102 — 바인딩은 그대로, 값만 Set
+sh = self._surface_shader(stage, mat_path)   # {mat}/Shader 폴백
+sh.GetInput("diffuseColor").Set(Gf.Vec3f(*v["diffuseColor"]))
+sh.GetInput("metallic").Set(v["metallic"])
+sh.GetInput("roughness").Set(v["roughness"])</code></pre>
+    <table>
+      <tr><th>모드</th><th>green (직선)</th><th>pink (곡선직선)</th><th>red (호)</th><th>metallic / roughness</th></tr>
+      <tr><td><span class="badge badge-cyan">realistic</span></td><td colspan="3" style="text-align:center">셋 다 diffuse (0.52, 0.57, 0.64) — 알루미늄 그레이</td><td>0.65 / 0.35</td></tr>
+      <tr><td><span class="badge badge-orange">debug</span></td><td>(0.15, 0.85, 0.25)</td><td>(1.00, 0.45, 0.75)</td><td>(0.95, 0.12, 0.12)</td><td>0.10 / 0.50</td></tr>
+    </table>
+    <p class="note">값 상수는 <code>build_base.py</code>(빌드 기본값)와 <code>extension.py:31-41</code>(RAIL_REALISTIC / RAIL_DEBUG)가 일치해야 한다.</p>
+
+    <h3>왜 되나 (성공 메커니즘)</h3>
+    <p>Hydra 는 <span class="highlight">attribute 값 변경</span>은 추적(dirty)해서 그 머티리얼을 쓰는
+       PointInstancer 인스턴스에도 re-shade 를 유발한다. 바인딩(관계)은 그대로 두고 값만 바꾸므로
+       런타임에 색이 갱신된다. (사용자 GUI 에서 실제 색 변경 확인됨.)</p>
+
+    <h2>binding vs value — 정리</h2>
+    <table>
+      <tr><th>축</th><th>binding(관계) 변경 — 옛 variant</th><th>value(값) 변경 — 새 방식</th></tr>
+      <tr><td>무엇을 바꾸나</td><td><code>material:binding</code> 의 타깃 머티리얼</td><td>셰이더 <code>inputs:*</code> 의 값</td></tr>
+      <tr><td>USD 변경 종류</td><td>relationship (composition arc/variant)</td><td>attribute value</td></tr>
+      <tr><td>첫 sync 렌더</td><td><span class="badge badge-green">정상</span></td><td><span class="badge badge-green">정상</span></td></tr>
+      <tr><td>런타임 인스턴서 갱신</td><td><span class="badge badge-red">안 됨</span> (dirty 누락)</td><td><span class="badge badge-green">됨</span></td></tr>
+      <tr><td>FSD on/off</td><td>둘 다 실패(실측)</td><td>해당 없음</td></tr>
+      <tr><td>적합한 용도</td><td>정적 표현·이식성(빌드 기본값)</td><td>런타임 시각 토글</td></tr>
+    </table>
+
+    <h2>핵심 교훈</h2>
+    <div class="card">
+      <p><span class="highlight">PointInstancer 는 런타임의 "binding(관계) 변경"엔 갱신되지 않고,
+         "value(값) 변경"엔 갱신된다.</span></p>
+      <ul>
+        <li>정적 표현/이식성엔 variantSet 이 깔끔하다. 하지만 <b>런타임 토글</b>엔 값 변경
+            (또는 per-instance primvar, Fabric write)이 맞다.</li>
+        <li>일반 원칙: <b>author(빌드)</b> 와 <b>runtime</b> 은 다른 층위다. 런타임 시각 변경은
+            "무엇을 dirty 시키는가"로 설계해야 한다 — 관계 재배선은 인스턴서를 dirty 시키지 못한다.</li>
+        <li><b>git 증거가 결론을 뒷받침한다.</b> variantSet 도입 직전(<code>6b830d4</code>,
+            <code>convert_map_to_usd.py:82-87</code>)의 동작하던 코드가 실제로 값 기반 고정 바인딩이었다 —
+            즉 "값 변경은 갱신, 바인딩 스왑은 미갱신"이 추측이 아니라 실측 회귀로 확인된 셈이다.</li>
+      </ul>
+    </div>
+
+    <h2>검증 결과</h2>
+    <p>base.usda 재생성 후 <code>Usd.Stage.Open</code> 실측 (dev-agent).</p>
+    <table>
+      <tr><th>검사</th><th>기대</th><th>결과</th></tr>
+      <tr><td><code>/World/Looks/Rail_{green,pink,red}</code> 머티리얼 3개 존재</td><td>3개</td><td><span class="badge badge-green">PASS</span></td></tr>
+      <tr><td>각 <code>box_rail_{key}</code> 의 <code>material:binding</code> → 자기 <code>Rail_{key}</code></td><td>1:1</td><td><span class="badge badge-green">PASS</span></td></tr>
+      <tr><td>세 셰이더 diffuse=(0.52,0.57,0.64), metallic≈0.65, roughness≈0.35</td><td>realistic 기본값</td><td><span class="badge badge-green">PASS</span></td></tr>
+      <tr><td><code>/World/Protos</code> variantSets</td><td><code>[]</code> (railColor 제거)</td><td><span class="badge badge-green">PASS</span></td></tr>
+      <tr><td><code>/World/Rails</code> 인스턴스 수</td><td>45,136 (회귀 없음)</td><td><span class="badge badge-green">PASS</span></td></tr>
+    </table>
+
+    <h2>변경 이력</h2>
+    <table>
+      <tr><th>버전</th><th>날짜</th><th>내용</th></tr>
+      <tr><td>v0.2.0</td><td>2026-06-28</td><td>사실관계 정정 — "처음부터 런타임 토글이 안 됐을 것"이라는 추측 폐기. git <code>6b830d4</code>(값 기반 고정 바인딩) 근거로 타임라인 재구성(이전 동작=값 기반→variantSet 회귀로 깨짐→오늘 복귀)</td></tr>
+      <tr><td>v0.1.0</td><td>2026-06-28</td><td>최초 작성 — variantSet(binding) 실패 → value 토글 전환 정리, 검증 표 포함</td></tr>
+    </table>
+
+    <hr>
+    <p class="note" style="text-align:center">Generated by Claude — vps_omniverse docs</p>
+  </main>
+</div>
+
+<script>
+(function(){
+  const content = document.getElementById('content');
+  const toc = document.getElementById('toc');
+  const heads = [...content.querySelectorAll('h2,h3,h4')];
+  const c = [0,0,0];                          // 번호 카운터 [h2,h3,h4]
+  const entries = [];                         // {el, level, num, id}
+
+  heads.forEach(h=>{
+    const lvl = +h.tagName[1];                // 2,3,4
+    if(lvl===2){c[0]++; c[1]=0; c[2]=0;}
+    else if(lvl===3){c[1]++; c[2]=0;}
+    else {c[2]++;}
+    const num = lvl===2?`${c[0]}`: lvl===3?`${c[0]}.${c[1]}`:`${c[0]}.${c[1]}.${c[2]}`;
+    const id = 'sec-'+num.replace(/\./g,'-');
+    h.id = id;
+    const txt = h.textContent;            // 번호 span 삽입 '전' 순수 제목 캡처
+    h.insertAdjacentHTML('afterbegin', `<span class="hnum">${num}</span>`);
+    entries.push({el:h, level:lvl, num, id, text:txt});
+  });
+
+  // 사이드바 트리 생성
+  entries.forEach((e,i)=>{
+    const row = document.createElement('div');
+    row.className = `toc-item lvl-${e.level-1}`;
+    row.dataset.id = e.id; row.dataset.level = e.level;
+    const hasChild = entries[i+1] && entries[i+1].level > e.level;
+    row.innerHTML =
+      `<span class="toc-toggle ${hasChild?'':'leaf'}">▾</span>`+
+      `<a href="#${e.id}"><span class="toc-num">${e.num}</span>${e.text}</a>`;
+    toc.appendChild(row);
+  });
+
+  // 접기/펴기: 토글 클릭 → 자기보다 깊은 하위들을 다음 동급 전까지 숨김
+  toc.querySelectorAll('.toc-toggle:not(.leaf)').forEach(tg=>{
+    tg.addEventListener('click', ()=>{
+      const row = tg.closest('.toc-item');
+      const lvl = +row.dataset.level;
+      tg.classList.toggle('collapsed');
+      const hide = tg.classList.contains('collapsed');
+      let n = row.nextElementSibling;
+      while(n && +n.dataset.level > lvl){
+        n.classList.toggle('toc-hidden', hide);
+        // 접힌 하위의 토글도 접힘 상태로 표시
+        if(hide){ const t=n.querySelector('.toc-toggle'); if(t) t.classList.add('collapsed'); }
+        n = n.nextElementSibling;
+      }
+    });
+  });
+
+  // 스크롤 위치 하이라이트 (scroll-spy)
+  const rows = [...toc.querySelectorAll('.toc-item')];
+  const byId = Object.fromEntries(rows.map(r=>[r.dataset.id, r.querySelector('a')]));
+  const obs = new IntersectionObserver(es=>{
+    es.forEach(en=>{
+      if(en.isIntersecting){
+        rows.forEach(r=>r.querySelector('a').classList.remove('active'));
+        const a = byId[en.target.id]; if(a) a.classList.add('active');
+      }
+    });
+  }, {rootMargin:'0px 0px -75% 0px', threshold:0});
+  entries.forEach(e=>obs.observe(e.el));
+
+  // 검색: 본문 섹션 + 목차 필터 + 하이라이트
+  const search = document.getElementById('search');
+  const blocks = entries.map((e,i)=>{
+    // 섹션 = 제목 ~ 다음 제목 전까지의 형제 노드
+    const nodes=[e.el]; let n=e.el.nextElementSibling;
+    while(n && !/^H[234]$/.test(n.tagName)){ nodes.push(n); n=n.nextElementSibling; }
+    return {entry:e, nodes};
+  });
+  function clearMarks(){ content.querySelectorAll('mark').forEach(m=>{
+    m.replaceWith(document.createTextNode(m.textContent)); }); }
+  search.addEventListener('input', ()=>{
+    const q = search.value.trim().toLowerCase();
+    clearMarks();
+    if(!q){ rows.forEach(r=>r.classList.remove('search-hide'));
+            blocks.forEach(b=>b.nodes.forEach(nd=>nd.classList.remove('search-hide'))); return; }
+    blocks.forEach(b=>{
+      const hit = b.nodes.some(nd=>nd.textContent.toLowerCase().includes(q));
+      b.nodes.forEach(nd=>nd.classList.toggle('search-hide', !hit));
+      const r = rows.find(r=>r.dataset.id===b.entry.id);
+      if(r) r.classList.toggle('search-hide', !hit);
+    });
+  });
+})();
+</script>
+</body>
+</html>
